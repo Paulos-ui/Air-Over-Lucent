@@ -58,3 +58,5 @@
   .tuner-card { padding:.95rem 1.2rem; }
   #lock { margin-top:.55rem; }
 }
+
+.primary:disabled,.secondary:disabled { opacity:.48; cursor:default; box-shadow:none; }

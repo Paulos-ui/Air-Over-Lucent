@@ -4,12 +4,12 @@ A browser-based 3D driving game. During a storm, you guide Lucent Bay's last fer
 
 ## Play
 
-Open `index.html` in a WebGL-enabled browser. Double-clicking the file also works offline. Use the **Sound off** button to start the original synth score and sound effects.
+Open `index.html` in a modern browser. The game uses compatibility graphics automatically when its WebGL renderer cannot start. Double-clicking the file also works offline. Use the **Sound off** button to start the original synth score and sound effects.
 
 - PC: WASD or Arrow keys to drive, Space to drift, R to reset, Escape to pause.
 - Phone: hold **Drive** with your right thumb and steer with your left. Hold **Brake** to slow down or reverse. Tap the pause control to restart. Landscape gives you a wider view.
 - Mission: drive through each cyan beacon. Sweep the radio dial until you see **Locked**, then press **Lock signal**. You can drag the dial or use the plus and minus buttons.
-- Graphics: use **Low** on slower devices, **Medium** for general play, and **High** for higher render resolution and environment reflections.
+- Graphics: use **Low** on slower devices, **Medium** for general play, and **High** for higher render resolution and environment reflections. Choose the graphics button again after High to switch to Compatibility mode.
 
 ## Deploy from GitHub to Vercel
 

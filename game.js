@@ -7,15 +7,7 @@
     'objective-title','objective-note','mission-tag','progress','direction','speed-value','gear','meter-fill','district','distance','notice','error',
     'tuner','tuner-title','tuner-copy','dial','frequency','signal','signal-label','lock','tune-down','tune-up','quality'
   ].map(id=>[id,byId(id)]));
-  let city;
-  try {
-    city = window.makeCity(ui.world);
-  } catch (error) {
-    ui.error.textContent='The 3D city could not start. Open Dead Air Over Lucent in a browser with hardware acceleration and WebGL enabled.';
-    ui.error.hidden=false;ui.primary.disabled=true;ui.secondary.disabled=true;
-    console.error(error);
-    return;
-  }
+  let city, rendererMode;
 
   const missions=[
     {x:4,z:53,hz:89.3,title:'Find the ferry dispatcher',note:'Drive into the cyan beacon at the Night Market.',station:'Night Market dispatch',message:'Dispatch has a head count. Tune in and relay it to the ferry.',receipt:'Dispatch · Twenty-three passengers aboard.'},
@@ -173,13 +165,71 @@
   function setQuality() {
     city.setQuality(graphics);
     const mode=graphics==='low'?'Low':graphics==='high'?'High':'Medium';
-    ui.quality.textContent=mode;
-    ui.quality.setAttribute('aria-label','Graphics quality: '+mode+'. Change graphics quality.');
+    ui.quality.textContent=rendererMode==='canvas'?'Compat '+mode:mode;
+    ui.quality.setAttribute('aria-label',(rendererMode==='canvas'?'Compatibility graphics: ':'Graphics quality: ')+mode+'. Change graphics quality.');
   }
-  setQuality();
-  ui.quality.addEventListener('click',()=>{
-    graphics=modes[(modes.indexOf(graphics)+1)%modes.length];
+  function openCity(useCanvas) {
+    ui.world.textContent='';
+    rendererMode=useCanvas?'canvas':'webgl';
+    city=useCanvas?window.makeCompatibilityCity(ui.world):window.makeCity(ui.world);
+    ui.world.dataset.renderer=rendererMode;
     setQuality();
+    const canvas=ui.world.querySelector('canvas');
+    if(!useCanvas&&canvas){
+      canvas.addEventListener('webglcontextlost',()=>{
+        if(rendererMode==='webgl'&&ui.world.querySelector('canvas')===canvas)activateCompatibility();
+      },{once:true});
+    }
+    city.draw(state,0,menuTime,objective(),true);
+  }
+  function showRendererError(error) {
+    console.error('Game renderer failed',error);
+    city=null;
+    ui.error.textContent='The game could not start either renderer. Reload this page or try another browser.';
+    ui.error.hidden=false;ui.primary.disabled=true;ui.secondary.disabled=true;
+  }
+  function activateCompatibility(reason) {
+    if(reason)console.warn('Switching to compatibility graphics',reason);
+    try {
+      openCity(true);
+      if(state.view==='drive'&&city.blocked(state.x,state.z))resetCar();
+      if(state.view==='drive')announce('Compatibility graphics active');
+      return true;
+    } catch(error) {
+      showRendererError(error);
+      return false;
+    }
+  }
+  let preferCompatibility=false;
+  try { preferCompatibility=localStorage.getItem('lucent-renderer-v2')==='canvas'; } catch (_) {}
+  if(preferCompatibility){
+    if(!activateCompatibility())return;
+  }else{
+    try { openCity(false); }
+    catch(error){if(!activateCompatibility(error))return;}
+  }
+  ui.quality.addEventListener('click',()=>{
+    if(!city)return;
+    if(rendererMode==='webgl'&&graphics==='high'){
+      graphics='balanced';
+      if(activateCompatibility()){
+        preferCompatibility=true;
+        try {localStorage.setItem('lucent-renderer-v2','canvas');}catch(_){}
+      }
+    }else if(rendererMode==='canvas'&&graphics==='high'&&preferCompatibility){
+      graphics='balanced';
+      try {
+        openCity(false);
+        preferCompatibility=false;
+        try {localStorage.removeItem('lucent-renderer-v2');}catch(_){}
+      } catch(error) {
+        if(!activateCompatibility(error))return;
+      }
+    }else{
+      graphics=modes[(modes.indexOf(graphics)+1)%modes.length];
+      try {setQuality();}
+      catch(error){if(!activateCompatibility(error))return;}
+    }
     try { localStorage.setItem('lucent-graphics-v1',graphics); } catch (_) {}
   });
   ui.sound.addEventListener('click',()=>{
@@ -328,6 +378,7 @@
   let last=performance.now();
   let mapAge=0;
   function frame(now) {
+    if(!city)return;
     const dt=clamp((now-last)/1000,0,.05);
     last=now;menuTime+=dt;mapAge+=dt;
     const playing=state.view==='drive';
@@ -335,7 +386,12 @@
     if(playing||state.view==='menu')city.updateTraffic(dt);
     if(playing)drive(dt);
     const goal=objective();
-    city.draw(state,dt,menuTime,playing?goal:null);
+    try {
+      city.draw(state,dt,menuTime,playing?goal:null);
+    } catch(error) {
+      if(rendererMode==='canvas'){showRendererError(error);return;}
+      if(!activateCompatibility(error))return;
+    }
     drawRain(dt);radio.update(state.view,Math.abs(state.speed),signalLevel,active('handbrake'));
     if(playing&&mapAge>.065){updateHud(goal);mapAge=0;}
     if(noticeUntil&&menuTime>noticeUntil){ui.notice.textContent='';noticeUntil=0;}
@@ -343,6 +399,5 @@
   }
   addEventListener('resize',resize);
   resize();
-  city.draw(state,0,0,null,true);
   requestAnimationFrame(frame);
 })();
