@@ -15,7 +15,7 @@
     {x:84,z:-84,hz:90.4,via:{x:4,z:-84},title:'Open the harbour relay',note:'Turn right at the junction and follow the beacon to the tower.',station:'Harbour relay',message:'Find the ferry captain’s signal to upload the safe approach.',receipt:'Ferry captain · East channel confirmed. We’re coming in.'}
   ];
   const spawn={x:4,z:138,heading:0};
-  const state={...spawn,speed:0,vx:0,vz:0,steer:0,view:'menu',mode:'mission',stage:0,elapsed:0,hitAge:0};
+  const state={...spawn,speed:0,vx:0,vz:0,steer:0,suspension:0,wheelAngle:0,brake:false,view:'menu',mode:'mission',stage:0,elapsed:0,hitAge:0};
   let viaReached=false,noticeUntil=0,menuTime=0;
   const held=new Set();
   const keyMap=new Map([
@@ -60,7 +60,8 @@
       }
       state.x=clamp(state.x,-339,339);state.z=clamp(state.z,-339,339);
     }
-    state.speed=state.vx=state.vz=state.steer=0;
+    state.speed=state.vx=state.vz=state.steer=state.suspension=state.wheelAngle=0;
+    state.brake=false;
     city.draw(state,0,menuTime,objective(),true);
   }
   function label(title,kicker,copy,primary,secondary,compact=false) {
@@ -350,6 +351,9 @@
     state.elapsed+=dt;
     state.hitAge=Math.max(0,state.hitAge-dt);
     const throttle=active('forward'),braking=active('back'),drift=active('handbrake');
+    state.brake=(braking&&state.speed>.28)||drift;
+    const pitch=state.brake?-.066:throttle?.035:0;
+    state.suspension+=(pitch-state.suspension)*(1-Math.exp(-dt*8));
     const turn=Number(active('right'))-Number(active('left'));
     state.steer+=(turn-state.steer)*(1-Math.exp(-dt*13));
     if(throttle)state.speed+=dt*(state.speed<0?30:17-Math.max(0,state.speed)*.24);
@@ -369,6 +373,8 @@
     if(city.blocked(nx,nz) || (state.hitAge===0&&city.trafficCollision(nx,nz))) {
       state.speed*=-.25;state.vx=state.vz=0;state.hitAge=.45;
     } else {
+      const distance=Math.hypot(nx-state.x,nz-state.z)*Math.sign(state.speed);
+      state.wheelAngle=(state.wheelAngle+distance/window.lucentMotion.radius)%(Math.PI*2);
       state.x=nx;state.z=nz;
     }
     const goal=objective();

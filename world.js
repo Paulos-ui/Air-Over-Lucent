@@ -4,6 +4,7 @@ window.makeCity = function makeCity(container) {
   const T = window.THREE;
   const images=window.lucentVisuals;
   const streets=window.lucentStreets;
+  const models=window.lucentMotion;
   const scene = new T.Scene();
   scene.fog = new T.FogExp2(0x72757e, 0.00285);
   const camera = new T.PerspectiveCamera(58, 1, .1, 1250);
@@ -17,7 +18,13 @@ window.makeCity = function makeCity(container) {
   scene.add(new T.HemisphereLight(0xb0cbdd, 0x58505a, 1.55));
   const sunrise = new T.DirectionalLight(0xffba88, 2.8);
   sunrise.position.set(155,58,-510);
-  scene.add(sunrise);
+  scene.add(sunrise,sunrise.target);
+  sunrise.castShadow=true;
+  sunrise.shadow.mapSize.set(1536,1536);
+  Object.assign(sunrise.shadow.camera,{left:-59,right:59,top:59,bottom:-59,near:2,far:285});
+  sunrise.shadow.camera.updateProjectionMatrix();
+  sunrise.shadow.normalBias=.11;
+  if(renderer.shadowMap)renderer.shadowMap.type=T.PCFSoftShadowMap;
   const fill = new T.DirectionalLight(0x87bde9, 1.2);
   fill.position.set(-90,30,110);
   scene.add(fill);
@@ -400,49 +407,69 @@ window.makeCity = function makeCity(container) {
       dummy.position.set(x,y,z);dummy.scale.set(w,h,d);dummy.updateMatrix();
       mesh.setMatrixAt(i,dummy.matrix);
     });
+    mesh.receiveShadow=true;
+    mesh.castShadow=mat!==road&&mat!==sidewalk&&mat!==sea;
     scene.add(mesh);
   }
   staticBoxes.clear();
 
-  const personTextures=new Map();
-  function spriteTexture(name,flip){
-    const image=images?.get(name);
-    if(!image)return null;
-    const key=name+flip;
-    if(!personTextures.has(key)){
-      const map=new T.Texture(image);
-      map.colorSpace=T.SRGBColorSpace;
-      if(flip){map.repeat.x=-1;map.offset.x=1;}
-      map.needsUpdate=true;
-      personTextures.set(key,map);
+  const geometryCache=new Map();
+  function geometry(shape){
+    if(geometryCache.has(shape))return geometryCache.get(shape);
+    const geo=new T.BufferGeometry(),indices=[];
+    for(const face of shape.faces){
+      for(let i=1;i<face.length-1;i++)indices.push(face[0],face[i],face[i+1]);
     }
-    return personTextures.get(key);
+    geo.setAttribute('position',new T.Float32BufferAttribute(shape.vertices.flat(),3));
+    geo.setIndex(indices);geo.computeVertexNormals();
+    geometryCache.set(shape,geo);
+    return geo;
   }
+  const skinCache=new Map();
+  function bodyMaterial(color){
+    if(!skinCache.has(color))skinCache.set(color,new T.MeshStandardMaterial({color,roughness:.89,side:T.DoubleSide}));
+    return skinCache.get(color);
+  }
+  const vertical=new T.Vector3(0,1,0), bone=new T.Vector3();
   const walkers=streets.pedestrians.map(person=>{
-    const figure=new T.Sprite(new T.SpriteMaterial({transparent:true,alphaTest:.17,depthWrite:false,toneMapped:false}));
-    figure.center.set(.5,0);
-    const shade=new T.Mesh(new T.PlaneGeometry(.86,.66),new T.MeshBasicMaterial({
-      map:glow,transparent:true,depthWrite:false,color:0x152324,opacity:.54
+    const figure=new T.Group();
+    const shade=new T.Mesh(new T.PlaneGeometry(.89,.68),new T.MeshBasicMaterial({
+      map:glow,transparent:true,depthWrite:false,color:0x101a20,opacity:.52
     }));
     shade.rotation.x=-Math.PI/2;
     scene.add(figure,shade);
-    return {person,figure,shade};
+    return {person,figure,shade,limbs:[]};
   });
   function walkStreets(state,time,quality){
-    const limit=quality==='low'?72:112;
-    for(const {person,figure,shade} of walkers){
+    const limit=quality==='low'?65:95;
+    for(const {person,figure,shade,limbs} of walkers){
       const pose=streets.pose(person,time);
-      const map=spriteTexture(pose.image,pose.flip);
-      const visible=Boolean(map)&&Math.hypot(state.x-pose.x,state.z-pose.z)<limit;
+      const visible=Math.hypot(state.x-pose.x,state.z-pose.z)<limit;
       figure.visible=shade.visible=visible;
-      if(!map||!visible)continue;
-      if(figure.material.map!==map){
-        figure.material.map=map;
-        figure.material.needsUpdate=true;
+      if(!visible)continue;
+      const model=models.human(person,pose,time);
+      figure.position.set(pose.x,.146,pose.z);
+      figure.rotation.y=-model.heading;
+      figure.scale.setScalar(model.scale);
+      shade.position.set(pose.x,.153,pose.z);
+      for(const [index,part] of model.parts.entries()){
+        if(!limbs[index]){
+          const segment=new T.Mesh(geometry(models.primitive[part.mesh]),bodyMaterial(part.color));
+          segment.castShadow=true;
+          figure.add(segment);limbs.push(segment);
+        }
+        const segment=limbs[index];
+        if(part.a){
+          bone.set(part.b[0]-part.a[0],part.b[1]-part.a[1],part.b[2]-part.a[2]);
+          const length=bone.length();
+          segment.position.set((part.a[0]+part.b[0])*.5,(part.a[1]+part.b[1])*.5,(part.a[2]+part.b[2])*.5);
+          segment.scale.set(part.width,length,part.width);
+          segment.quaternion.setFromUnitVectors(vertical,bone.normalize());
+        }else{
+          segment.position.set(...part.center);
+          segment.scale.set(...part.scale);
+        }
       }
-      figure.position.set(pose.x,.16+pose.rise,pose.z);
-      figure.scale.set(person.height*map.image.naturalWidth/map.image.naturalHeight,person.height,1);
-      shade.position.set(pose.x,.155,pose.z);
     }
     for(const dot of signalMeshes){
       const stop=time%17>11;
@@ -450,93 +477,78 @@ window.makeCity = function makeCity(container) {
       dot.position.y=stop?4.0:3.42;
     }
   }
-
-  const paint=new T.MeshPhysicalMaterial({color:0x245565,metalness:.68,roughness:.27,clearcoat:.91,clearcoatRoughness:.12,envMapIntensity:1.2});
-  const glass=new T.MeshPhysicalMaterial({color:0x3d5467,metalness:.19,roughness:.17,transparent:true,opacity:.59,clearcoat:.75});
-  const interior=material(0x1f232a), jacket=material(0x394149), complexion=material(0x634537);
-  const headGeometry=new T.SphereGeometry(.14,12,9);
-  const rimLip=new T.TorusGeometry(.245,.029,8,20);
-  rimLip.rotateY(Math.PI/2);
-  const rubber=material(0x171421), trim=material(0x383951,{metalness:.64,roughness:.27});
-  const tails=flat(0xff5063), heads=flat(0xe4ffff);
-  const wheelGeo=new T.CylinderGeometry(.43,.43,.36,16);
-  wheelGeo.rotateZ(Math.PI/2);
-  const rimGeo=new T.CylinderGeometry(.26,.26,.38,12);
-  rimGeo.rotateZ(Math.PI/2);
-  function shell(parent,sections,mat) {
-    const positions=[], indices=[], stride=8;
-    for(const [z,w,lo,hi] of sections){
-      const bevel=Math.min(.12,(hi-lo)*.34);
-      for(const [x,y] of [[-.78*w,lo],[.78*w,lo],[w,lo+bevel],[.99*w,hi-bevel],
-        [.79*w,hi],[-.79*w,hi],[-.99*w,hi-bevel],[-w,lo+bevel]])positions.push(x,y,z);
+  const vehicleMaterials={
+    glass:new T.MeshPhysicalMaterial({color:0x314550,metalness:.28,roughness:.18,clearcoat:.76,side:T.DoubleSide}),
+    rubber:new T.MeshStandardMaterial({color:0x171b21,roughness:.9,side:T.DoubleSide}),
+    plate:new T.MeshStandardMaterial({color:0xbac0b9,roughness:.64,side:T.DoubleSide}),
+    chrome:new T.MeshStandardMaterial({color:0x919898,metalness:.67,roughness:.25,side:T.DoubleSide}),
+    wheelInner:new T.MeshStandardMaterial({color:0x292e31,roughness:.81,side:T.DoubleSide}),
+    hub:new T.MeshStandardMaterial({color:0x606c73,metalness:.5,roughness:.45,side:T.DoubleSide}),
+    alloy:new T.MeshStandardMaterial({color:0x858d91,metalness:.54,roughness:.3,side:T.DoubleSide}),
+    headlight:new T.MeshBasicMaterial({color:0xd9f4f5,side:T.DoubleSide,toneMapped:false}),
+    tail:new T.MeshBasicMaterial({color:0xbc2532,side:T.DoubleSide,toneMapped:false}),
+  };
+  function car(color,player=false){
+    const root=new T.Group(),body=new T.Group(),pivot=new T.Group();
+    pivot.position.y=-.44;body.position.y=.44;body.add(pivot);root.add(body);
+    const paint=new T.MeshPhysicalMaterial({color,metalness:.59,roughness:.27,clearcoat:.91,clearcoatRoughness:.13,side:T.DoubleSide});
+    const tail=player?vehicleMaterials.tail.clone():vehicleMaterials.tail;
+    for(const [kind,shape] of models.parts){
+      const mesh=new T.Mesh(geometry(shape),kind==='paint'?paint:kind==='tail'?tail:vehicleMaterials[kind]);
+      mesh.castShadow=kind==='paint';
+      pivot.add(mesh);
     }
-    for(let i=0;i<sections.length-1;i++){
-      for(let a=0;a<stride;a++){
-        const b=(a+1)%stride,p=i*stride,q=p+stride;
-        indices.push(p+a,q+a,p+b,p+b,q+a,q+b);
+    const wheels=[];
+    for(const side of [-1,1])for(const axle of [-1.49,1.49]){
+      const steering=new T.Group(), spin=new T.Group();
+      steering.position.set(side*.93,models.radius,axle);
+      for(const [kind,shape] of models.wheel){
+        if(!player&&kind==='hub')continue;
+        if(!player&&kind==='alloy')continue;
+        const mesh=new T.Mesh(geometry(shape),vehicleMaterials[kind]);
+        mesh.castShadow=kind==='rubber';spin.add(mesh);
       }
+      steering.add(spin);root.add(steering);
+      wheels.push({steering,spin,front:axle<0});
     }
-    const end=(sections.length-1)*stride;
-    for(let i=1;i<stride-1;i++)indices.push(0,i,i+1,end,end+i+1,end+i);
-    const geo=new T.BufferGeometry();
-    geo.setAttribute('position',new T.Float32BufferAttribute(positions,3));
-    geo.setIndex(indices);geo.computeVertexNormals();
-    const surface=mat.clone();surface.side=T.DoubleSide;
-    parent.add(new T.Mesh(geo,surface));
-  }
-  function car(color,player=false) {
-    const g=new T.Group(), body=player ? paint : material(color,{metalness:.48,roughness:.32});
-    const shade=new T.Mesh(new T.PlaneGeometry(4.25,6.7),new T.MeshBasicMaterial({map:glow,color:0x0b0719,transparent:true,opacity:.95,depthWrite:false}));
-    shade.rotation.x=-Math.PI/2;shade.position.y=.025;g.add(shade);
-    shell(g,[[-2.38,.78,.43,.69],[-2.21,.96,.37,.79],[-1.51,1.04,.34,.94],[-.42,1.01,.34,.94],
-      [.92,1.045,.34,.95],[1.73,1.075,.35,.93],[2.12,1.018,.37,.86],[2.29,.9,.42,.77]],body);
-    shell(g,[[-1.16,.86,.88,.92],[-.82,.82,.88,1.18],[-.42,.76,.90,1.48],[.1,.76,.90,1.52],
-      [.60,.78,.89,1.46],[1.05,.82,.88,1.22],[1.47,.87,.88,.93]],glass);
-    shell(g,[[-.56,.74,1.41,1.46],[-.33,.755,1.46,1.52],[.32,.75,1.46,1.51],[.68,.73,1.37,1.44]],body);
-    box(g,trim,0,.47,2.27,1.77,.145,.13);
-    box(g,interior,0,.61,2.29,.53,.19,.034);
-    box(g,interior,0,.53,-2.34,1.32,.17,.04);
-    for(const side of [-1,1]) {
-      box(g,tails,side*.64,.77,2.265,.59,.108,.055);
-      box(g,heads,side*.65,.66,-2.37,.37,.085,.045);
-      box(g,body,side*1.02,1.05,-.7,.25,.13,.29);
-      for(const z of [-1.45,1.43]){
-        const wheel=new T.Mesh(wheelGeo,rubber),rim=new T.Mesh(rimGeo,trim);
-        wheel.position.set(side*.92,.43,z);rim.position.copy(wheel.position);g.add(wheel,rim);
-        if(player){
-          const lip=new T.Mesh(rimLip,trim);
-          lip.position.set(side*1.13,.43,z);g.add(lip);
-          for(let spoke=0;spoke<5;spoke++){
-            const a=spoke*Math.PI*2/5;
-            const arm=box(g,trim,side*1.124,.43+Math.cos(a)*.11,z+Math.sin(a)*.11,.039,.235,.031);
-            arm.rotation.x=a;
-          }
-        }
-      }
-      if(player){
-        halo(g,side*.63,.75,2.30,1.45,.67,0xff3f65,.71);
-        const tailBounce=new T.Mesh(new T.PlaneGeometry(1.65,4.3),new T.MeshBasicMaterial({
-          map:glow,color:0xff475b,transparent:true,opacity:.31,depthWrite:false,blending:T.AdditiveBlending
-        }));
-        tailBounce.rotation.x=-Math.PI/2;tailBounce.position.set(side*.7,.012,3.35);g.add(tailBounce);
-        box(g,interior,side*.37,1.04,.22,.31,.38,.27);
-      }
-    }
+    root.userData={body,wheels,tail,tailGlows:[],bounce:[]};
+    const shade=new T.Mesh(new T.PlaneGeometry(3.83,5.94),new T.MeshBasicMaterial({
+      map:glow,color:0x080c11,transparent:true,opacity:.9,depthWrite:false
+    }));
+    shade.rotation.x=-Math.PI/2;shade.position.y=.018;root.add(shade);
     if(player){
-      box(g,body,0,.918,1.96,1.85,.062,.23);
-      box(g,jacket,-.38,1.06,-.28,.37,.36,.32);
-      const driverHead=new T.Mesh(headGeometry,complexion);
-      driverHead.position.set(-.38,1.298,-.32);
-      driverHead.scale.set(.88,1.09,.94);
-      g.add(driverHead);
-      box(g,interior,-.38,1.35,-.29,.21,.11,.16);
-      const lights=new T.SpotLight(0xc6edf7,510,51,.43,.71,1.32);
-      lights.position.set(0,.75,-2.02);lights.target.position.set(0,.03,-21);
-      g.add(lights,lights.target);
+      for(const side of [-1,1]){
+        const trail=halo(pivot,side*.65,.745,2.44,1.27,.58,0xfa4351,.52);
+        root.userData.tailGlows.push(trail);
+        const bounce=new T.Mesh(new T.PlaneGeometry(1.31,3.8),new T.MeshBasicMaterial({
+          map:glow,color:0xea4554,transparent:true,opacity:.26,depthWrite:false,blending:T.AdditiveBlending
+        }));
+        bounce.rotation.x=-Math.PI/2;bounce.position.set(side*.69,.009,3.32);root.add(bounce);
+        root.userData.bounce.push(bounce);
+        const beam=new T.SpotLight(0xc2e5eb,360,49,.34,.72,1.33);
+        beam.position.set(side*.61,.692,-2.39);
+        beam.target.position.set(side*1.38,.03,-20);
+        root.add(beam,beam.target);
+      }
     }
-    scene.add(g);return g;
+    scene.add(root);
+    return root;
   }
-  const player=car(0x275884,true);
+  function driveRig(car,state,rollAngle){
+    const input=models.dynamics(state);
+    const {body,wheels,tail,tailGlows,bounce}=car.userData;
+    body.rotation.x=input.pitch;body.rotation.z=input.roll;
+    for(const wheel of wheels){
+      wheel.steering.rotation.y=wheel.front?-input.steer:0;
+      wheel.spin.rotation.x=-rollAngle;
+    }
+    if(tailGlows.length){
+      tail.color.setHex(state.brake?0xff4654:0xbc2532);
+      for(const glow of tailGlows)glow.material.opacity=state.brake?.86:.52;
+      for(const light of bounce)light.material.opacity=state.brake?.55:.26;
+    }
+  }
+  const player=car(0x315c6a,true);
   const traffic=[];
   for(let i=0;i<15;i++) {
     const horizontal=i%3===1;
@@ -565,6 +577,7 @@ window.makeCity = function makeCity(container) {
     const profile={low:.78,balanced:1.04,high:1.6};
     renderer.setPixelRatio(Math.min(profile[quality],quality==='low'?1:Math.max(1,devicePixelRatio)));
     scene.environment=quality==='high'?environment:null;
+    if(renderer.shadowMap)renderer.shadowMap.enabled=quality==='high';
     road.bumpScale=quality==='low'?0:.085;
     resize();
   }
@@ -583,14 +596,21 @@ window.makeCity = function makeCity(container) {
     }
   }
   function draw(state,dt,time,target,immediate=false) {
-    player.position.set(state.x,.018,state.z);player.rotation.y=-state.heading;
+    player.position.set(state.x,.022,state.z);player.rotation.y=-state.heading;
+    driveRig(player,state,state.wheelAngle||0);
+    for(const item of traffic)driveRig(item.vehicle,item,item.along*item.direction/models.radius);
+    if(graphics==='high'){
+      const x=Math.round(state.x/3)*3,z=Math.round(state.z/3)*3;
+      sunrise.target.position.set(x,0,z);
+      sunrise.position.set(x+71,80,z-91);
+    }
     beacon.visible=!!target;
     if(target){beacon.position.set(target.x,.025,target.z);diamond.rotation.y=time*1.55;diamond.position.y=4+.6*Math.sin(time*3);ring.scale.setScalar(1+.13*Math.sin(time*2.5));}
     const sx=Math.sin(state.heading),sz=-Math.cos(state.heading);
     const moving=Math.min(1,Math.abs(state.speed)/54);
     const back=8.9+moving*2.6;
     const menu=state.view==='menu';
-    const side=menu ? -6.3+Math.sin(time*.35)*.85 : 0;
+    const side=menu?-4.6+Math.sin(time*.48)*1.2:(state.steer||0)*moving*.48;
     const ahead=menu ? 12 : 7.5;
     const next=nextCamera.set(state.x-sx*back-sz*side,menu?4.35:4.65+moving*.8,state.z-sz*back+sx*side);
     const look=nextFocus.set(state.x+sx*ahead-sz*(menu?-3.8:0),menu?3.4:1.45,state.z+sz*ahead+sx*(menu?-3.8:0));

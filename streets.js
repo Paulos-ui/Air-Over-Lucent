@@ -58,7 +58,6 @@
     return {
       x:person.x+(person.role==='maintenance'?Math.sin(motion)*.31:0),
       z:person.z+person.length*run,
-      image:person.role==='walk'?'ped-walk-'+Math.floor((time*5.7+person.phase*7)%4):'ped-'+person.role,
       flip:moving?!forward:person.phase>.5,
       rise:moving?Math.sin(time*11.4+person.phase*23)*.022:Math.sin(motion)*.019,
     };

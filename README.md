@@ -21,8 +21,12 @@ Everything needed to play is bundled locally. The folder has no npm install step
 
 ## Art assets
 
-The local `assets/` folder contains optimized WebP artwork made with built-in ImageGen. Keep the folder next to `index.html` when publishing. Both renderers use the artwork.
+The local `assets/` folder contains optimized WebP artwork made with built-in ImageGen. Keep the folder next to `index.html` when publishing. Both renderers use the environmental artwork.
 
 Prompts covered a straight-on six-material atlas (wet asphalt, stained concrete, weathered brick, office glass, corrugated steel, granite paving), a transparent rain-soaked petrol-blue coupe from the chase-camera angle, a natural portrait of Mara Vale inside her car, and a sky-only coastal sunrise through storm clouds.
 
-Lucent Bay’s market, residential blocks and loading docks use individual storefront photos and modular architecture. Pedestrians and harbour workers use transparent photo sprites and sidewalk routes shared across both renderers. The ImageGen prompts specified four orthographic coastal storefronts and an eight-cell atlas of walking and working residents.
+Lucent Bay’s market, residential blocks and loading docks use individual storefront photos and modular architecture. Both renderers use articulated 3D pedestrians and harbour workers on shared sidewalk routes. The ImageGen prompts specified four orthographic coastal storefronts and an eight-cell atlas of walking and working residents.
+
+## Real-time geometry
+
+The car, wheels, people, work gear, and shadows render in world space. Steering, wheel spin, suspension pitch, brake lights, walking, and work motions respond to the running game. Compatibility mode projects the same mesh and joint data through a CPU renderer, while the WebGL path uses physically based materials and paired headlamps. The storefronts, surfaces, and sky still use bundled image textures.
