@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#100b22">
+<meta name="description" content="Drive through a flooded coastal city, tune into missing radio signals, and open the causeway in this 3D night-driving game.">
+<title>Dead Air Over Lucent</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="three.min.js"></script>
+<script defer src="world.js"></script>
+<script defer src="radio.js"></script>
+<script defer src="game.js"></script>
+</head>
+<body>
+<main id="game" aria-label="Dead Air Over Lucent driving game">
+  <div id="sky"></div><div id="world"></div><canvas id="rain" aria-hidden="true"></canvas><div class="vignette"></div>
+  <header class="top">
+    <div class="brand"><span class="wave" aria-hidden="true">▂▅▃▇▅</span><span>DEAD AIR OVER LUCENT</span></div>
+    <div class="location"><span class="live-dot"></span> LUCENT BAY <span class="divider"></span> 02:17 AM</div>
+    <div class="actions"><button id="quality" type="button" aria-label="Change graphics quality">Graphics</button><button id="sound" type="button" aria-pressed="false">Sound off</button><button id="pause" type="button" aria-label="Pause game" hidden>Ⅱ</button></div>
+  </header>
+  <div id="hud" hidden>
+    <section class="objective panel" aria-label="Current objective">
+      <div class="kicker" id="mission-tag">EMERGENCY BROADCAST</div>
+      <div class="objective-title" id="objective-title">Follow the distress signal</div>
+      <div class="objective-note" id="objective-note">Follow the cyan beacon.</div>
+      <div class="progress" id="progress" aria-hidden="true"><i></i><i></i><i></i></div><button class="recover" id="recover" type="button">Reset car</button>
+    </section>
+    <div id="direction" class="direction" aria-hidden="true"><span>◆</span><b></b></div>
+    <section class="map panel" aria-label="Minimap"><canvas id="map" width="320" height="240"></canvas><div class="map-caption"><b id="district">LOWER QUAY</b><span id="distance">85 m</span></div></section>
+    <div id="speed" class="speed" aria-label="Speedometer"><div id="speed-value">000</div><div class="speed-meta"><span>KM/H</span><span id="gear">N</span></div><div class="meter"><i id="meter-fill"></i></div></div>
+    <div class="keyhelp"><span>WASD / ↑↓←→ Drive</span><span>Space Drift</span><span>R Reset car</span></div>
+    <div class="touch" aria-label="Driving controls">
+      <div><button data-key="left" aria-label="Steer left">◀</button><button data-key="right" aria-label="Steer right">▶</button></div>
+      <div><button data-key="back" aria-label="Brake or reverse">Brake</button><button data-key="forward" aria-label="Accelerate">Drive</button></div>
+    </div>
+  </div>
+  <section class="menu" id="menu" aria-labelledby="menu-title">
+    <div class="menu-inner">
+      <div class="kicker" id="menu-kicker"><span class="live-dot"></span> &nbsp; LUCENT BAY • STORM WARNING</div>
+      <h1 id="menu-title">DEAD AIR <span>OVER LUCENT</span></h1>
+      <p id="menu-copy">A storm cut off Lucent Bay’s evacuation channel. Drive to the stranded broadcasters, tune in their signals, and guide the last ferry home.</p>
+      <div class="menu-buttons"><button class="primary" id="primary" type="button">Start rescue mission</button><button class="secondary" id="secondary" type="button">Free drive</button></div>
+      <div class="menu-help" id="menu-help"><span class="keyboard-help">WASD or arrows to drive · Space to drift</span><span class="phone-help">Hold Drive and steer with your other thumb</span></div>
+    </div>
+  </section>
+  <section class="tuner" id="tuner" aria-labelledby="tuner-title" hidden>
+  <div class="tuner-card">
+    <div class="kicker">LUCENT BAY EMERGENCY BAND</div>
+    <h2 id="tuner-title">Tune the receiver</h2>
+    <p id="tuner-copy">Move the dial until the signal bars peak, then lock the signal.</p>
+    <label class="dial-label" for="dial">Frequency <output id="frequency" for="dial">91.0 MHz</output></label>
+    <div class="dial-controls">
+      <button id="tune-down" type="button" aria-label="Tune down">−</button>
+      <input id="dial" type="range" min="88" max="94" step="0.1" value="91" aria-describedby="tuner-copy">
+      <button id="tune-up" type="button" aria-label="Tune up">+</button>
+    </div>
+    <div class="signal-readout"><meter id="signal" min="0" max="100" value="0" aria-label="Signal strength"></meter><span id="signal-label" role="status">Weak</span></div>
+    <button class="primary" id="lock" type="button" disabled>Lock signal</button>
+  </div>
+</section>
+<div id="notice" role="status" aria-live="polite"></div><div id="error" role="alert" hidden></div>
+</main>
+</body></html>

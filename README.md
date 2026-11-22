@@ -1,0 +1,20 @@
+# Dead Air Over Lucent
+
+A browser-based 3D driving game. During a storm, you guide Lucent Bay's last ferry to safety by tuning in three emergency transmissions from the driver's seat.
+
+## Play
+
+Open `index.html` in a WebGL-enabled browser. Double-clicking the file also works offline. Use the **Sound off** button to start the original synth score and sound effects.
+
+- PC: WASD or Arrow keys to drive, Space to drift, R to reset, Escape to pause.
+- Phone: hold **Drive** with your right thumb and steer with your left. Hold **Brake** to slow down or reverse. Tap the pause control to restart. Landscape gives you a wider view.
+- Mission: drive through each cyan beacon. Sweep the radio dial until you see **Locked**, then press **Lock signal**. You can drag the dial or use the plus and minus buttons.
+- Graphics: use **Low** on slower devices, **Medium** for general play, and **High** for higher render resolution and environment reflections.
+
+## Deploy from GitHub to Vercel
+
+1. Push the contents of this folder to a GitHub repo. Put `index.html` at the repository root.
+2. Import the repo in Vercel. Use the **Other** framework preset, enable the Build Command override, and leave its field blank. Leave the Output Directory at its default and use the repository root as the Root Directory. See [Vercel’s static build settings](https://vercel.com/docs/builds/configure-a-build#skip-build-step).
+3. Deploy, then open the live URL on desktop and on iPhone and Android. Test the first radio stop, steering while accelerating, audio after tapping the sound button, and play at Low graphics.
+
+Everything needed to play is bundled locally. The folder has no npm install step, external assets, API keys, or backend. Three.js is distributed under the MIT license in `three-LICENSE.txt`.
