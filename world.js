@@ -2,8 +2,9 @@
 'use strict';
 window.makeCity = function makeCity(container) {
   const T = window.THREE;
+  const images=window.lucentVisuals;
   const scene = new T.Scene();
-  scene.fog = new T.FogExp2(0x46505c, 0.0035);
+  scene.fog = new T.FogExp2(0x72757e, 0.00285);
   const camera = new T.PerspectiveCamera(58, 1, .1, 1250);
   const renderer = new T.WebGLRenderer({alpha:true, antialias:true, powerPreference:'high-performance'});
   renderer.setPixelRatio(1);
@@ -12,10 +13,10 @@ window.makeCity = function makeCity(container) {
   renderer.toneMappingExposure = 1.12;
   container.appendChild(renderer.domElement);
   renderer.domElement.setAttribute('aria-hidden', 'true');
-  scene.add(new T.HemisphereLight(0xa8cddb, 0x564e57, 1.7));
-  const sunset = new T.DirectionalLight(0xffc5a0, 2.1);
-  sunset.position.set(140,90,-130);
-  scene.add(sunset);
+  scene.add(new T.HemisphereLight(0xb0cbdd, 0x58505a, 1.55));
+  const sunrise = new T.DirectionalLight(0xffba88, 2.8);
+  sunrise.position.set(155,58,-510);
+  scene.add(sunrise);
   const fill = new T.DirectionalLight(0x87bde9, 1.2);
   fill.position.set(-90,30,110);
   scene.add(fill);
@@ -51,6 +52,17 @@ window.makeCity = function makeCity(container) {
     map.anisotropy = Math.min(8,renderer.capabilities.getMaxAnisotropy());
     return map;
   }
+  function applyPhoto(map,name,opacity=1,blend='source-over'){
+    images?.onReady(name,photo=>{
+      const canvas=map.image, context=canvas.getContext('2d');
+      context.save();
+      context.globalAlpha=opacity;
+      context.globalCompositeOperation=blend;
+      context.drawImage(photo,0,0,canvas.width,canvas.height);
+      context.restore();
+      map.needsUpdate=true;
+    });
+  }
   const environment = texture(512,256,(c,w,h)=>{
     const sky=c.createLinearGradient(0,0,0,h);
     sky.addColorStop(0,'#102333'); sky.addColorStop(.39,'#3d5969'); sky.addColorStop(.49,'#947468');
@@ -84,7 +96,8 @@ window.makeCity = function makeCity(container) {
       c.fillStyle='#53506618'; c.fillRect(random()*w,random()*h,1+random()*3,random()*30);
     }
   });
-  wet.wrapS=wet.wrapT=T.RepeatWrapping;wet.repeat.set(42,42);
+  wet.wrapS=wet.wrapT=T.RepeatWrapping;wet.repeat.set(104,104);
+  applyPhoto(wet,'asphalt');
   const asphalt=texture(256,256,(c,w,h)=>{
     c.fillStyle='#929292';c.fillRect(0,0,w,h);
     for(let i=0;i<5900;i++){
@@ -103,11 +116,15 @@ window.makeCity = function makeCity(container) {
   asphalt.wrapS=asphalt.wrapT=T.RepeatWrapping;
   asphalt.repeat.set(52,52);
   const road = new T.MeshPhysicalMaterial({
-    color:0x8d9aa0,map:wet,roughness:.74,roughnessMap:asphalt,
-    bumpMap:asphalt,bumpScale:.085,metalness:.08,clearcoat:.46,clearcoatRoughness:.17,envMapIntensity:.58
+    color:0xb7b8bb,map:wet,roughness:.67,roughnessMap:asphalt,
+    bumpMap:asphalt,bumpScale:.053,metalness:.10,clearcoat:.56,clearcoatRoughness:.12,envMapIntensity:.76
   });
-  const sidewalk = material(0x353d43);
-  const curb = material(0x76787b);
+  const paving=texture(192,192,(c,w,h)=>{c.fillStyle='#5a6164';c.fillRect(0,0,w,h);});
+  paving.wrapS=paving.wrapT=T.RepeatWrapping;
+  paving.repeat.set(5,5);
+  applyPhoto(paving,'paving');
+  const sidewalk=material(0x8e969d,{map:paving});
+  const curb=material(0x99918b);
   const stripes=flat(0x9d899c), centerStripe=flat(0xb28c61), roof=material(0x30273e);
   const neon=[0x7df8ed,0xf964a7,0x8b9aff,0xffa875];
   const neonMats=neon.map(flat);
@@ -136,6 +153,14 @@ window.makeCity = function makeCity(container) {
     return new T.MeshBasicMaterial({map,color:[0xc3bed0,0xa4b7c7,0xc3bacf,0xcbabbe,0x968aa1,0xa8b3cf][index]});
   }
   const walls=Array.from({length:6},(_,i)=>facade(i));
+  ['concrete','brick','glass','steel','concrete','glass'].forEach((name,index)=>{
+    const map=walls[index].map;
+    applyPhoto(map,name,name==='glass'?.57:.46,'soft-light');
+  });
+  const shutterMap=texture(192,192,(c,w,h)=>{c.fillStyle='#455960';c.fillRect(0,0,w,h);});
+  applyPhoto(shutterMap,'steel');
+  const shutter=material(0x87919b,{map:shutterMap,metalness:.24});
+  const lintel=material(0x77746e);
   const faces=walls.map(w=>[w,w,roof,roof,w,w]);
   const streaks=[];
   const reflection=texture(96,256,(c,w,h)=>{
@@ -175,6 +200,13 @@ window.makeCity = function makeCity(container) {
   function building(x,z,w,d,h,i) {
     box(scene,faces[i],x,h/2,z,w,h,d);
     box(scene,roof,x,h+.24,z,w+.6,.52,d+.6);
+    box(scene,lintel,x,3.55,z+d/2+.06,w*.87,.23,.22);
+    box(scene,shutter,x-w*.16,1.75,z+d/2+.075,w*.44,3.25,.16);
+    box(scene,lintel,x+w*.3,1.63,z+d/2+.08,w*.15,3.0,.18);
+    if(h>33){
+      box(scene,lintel,x,h*.44,z+d/2+.08,w+.18,.22,.31);
+      box(scene,lintel,x,h*.72,z+d/2+.08,w+.18,.22,.31);
+    }
     colliders.push({x,z,w:w/2+1.1,d:d/2+1.1});
     if(h>60) {
       box(scene,roof,x,h+2,z,w*.47,4.2,d*.5);
@@ -266,10 +298,11 @@ window.makeCity = function makeCity(container) {
   billboard('FERRY',-68,7,113,14,3.5,2,-Math.PI/2);
   billboard('NIGHT MARKET',19,8,-138,15,3.8,1);
 
-  const moon=new T.Mesh(new T.SphereGeometry(13,36,20),new T.MeshBasicMaterial({color:0xffbca9,fog:false}));
-  moon.position.set(120,107,-690);scene.add(moon);
-  const moonHalo=halo(scene,120,107,-696,180,150,0xf77d9e,.66);
-  moonHalo.material.fog=false;staticHalos.splice(staticHalos.indexOf(moonHalo),1);
+  const sun=new T.Mesh(new T.SphereGeometry(9.4,32,16),new T.MeshBasicMaterial({color:0xffde9a,fog:false}));
+  sun.position.set(155,58,-690);scene.add(sun);
+  const sunHalo=halo(scene,155,58,-694,132,104,0xffb487,.72);
+  sunHalo.material.fog=false;staticHalos.splice(staticHalos.indexOf(sunHalo),1);
+  images?.onReady('lucent-dawn',()=>{sun.visible=false;sunHalo.visible=false;});
   for(let i=0;i<48;i++) {
     const x=-520+i*23,z=-445-random()*120,h=16+random()**1.55*130;
     box(scene,faces[i%6],x,h/2,z,10+random()*7,h,12+random()*10);
@@ -291,8 +324,12 @@ window.makeCity = function makeCity(container) {
   }
   staticBoxes.clear();
 
-  const paint=new T.MeshPhysicalMaterial({color:0x244553,metalness:.55,roughness:.25,clearcoat:.74,clearcoatRoughness:.21,envMapIntensity:1.04});
-  const glass=material(0x171c34,{metalness:.56,roughness:.24});
+  const paint=new T.MeshPhysicalMaterial({color:0x245565,metalness:.68,roughness:.27,clearcoat:.91,clearcoatRoughness:.12,envMapIntensity:1.2});
+  const glass=new T.MeshPhysicalMaterial({color:0x3d5467,metalness:.19,roughness:.17,transparent:true,opacity:.59,clearcoat:.75});
+  const interior=material(0x1f232a), jacket=material(0x394149), complexion=material(0x634537);
+  const headGeometry=new T.SphereGeometry(.14,12,9);
+  const rimLip=new T.TorusGeometry(.245,.029,8,20);
+  rimLip.rotateY(Math.PI/2);
   const rubber=material(0x171421), trim=material(0x383951,{metalness:.64,roughness:.27});
   const tails=flat(0xff5063), heads=flat(0xe4ffff);
   const wheelGeo=new T.CylinderGeometry(.43,.43,.36,16);
@@ -300,17 +337,20 @@ window.makeCity = function makeCity(container) {
   const rimGeo=new T.CylinderGeometry(.26,.26,.38,12);
   rimGeo.rotateZ(Math.PI/2);
   function shell(parent,sections,mat) {
-    const positions=[];
-    sections.forEach(([z,w,lo,hi])=>positions.push(-w,lo,z,w,lo,z,w,hi,z,-w,hi,z));
-    const indices=[];
+    const positions=[], indices=[], stride=8;
+    for(const [z,w,lo,hi] of sections){
+      const bevel=Math.min(.12,(hi-lo)*.34);
+      for(const [x,y] of [[-.78*w,lo],[.78*w,lo],[w,lo+bevel],[.99*w,hi-bevel],
+        [.79*w,hi],[-.79*w,hi],[-.99*w,hi-bevel],[-w,lo+bevel]])positions.push(x,y,z);
+    }
     for(let i=0;i<sections.length-1;i++){
-      for(let a=0;a<4;a++){
-        const b=(a+1)%4,p=i*4,q=p+4;
+      for(let a=0;a<stride;a++){
+        const b=(a+1)%stride,p=i*stride,q=p+stride;
         indices.push(p+a,q+a,p+b,p+b,q+a,q+b);
       }
     }
-    const end=(sections.length-1)*4;
-    indices.push(0,1,2,0,2,3,end,end+2,end+1,end,end+3,end+2);
+    const end=(sections.length-1)*stride;
+    for(let i=1;i<stride-1;i++)indices.push(0,i,i+1,end,end+i+1,end+i);
     const geo=new T.BufferGeometry();
     geo.setAttribute('position',new T.Float32BufferAttribute(positions,3));
     geo.setIndex(indices);geo.computeVertexNormals();
@@ -321,24 +361,48 @@ window.makeCity = function makeCity(container) {
     const g=new T.Group(), body=player ? paint : material(color,{metalness:.48,roughness:.32});
     const shade=new T.Mesh(new T.PlaneGeometry(4.25,6.7),new T.MeshBasicMaterial({map:glow,color:0x0b0719,transparent:true,opacity:.95,depthWrite:false}));
     shade.rotation.x=-Math.PI/2;shade.position.y=.025;g.add(shade);
-    shell(g,[[-2.37,.91,.39,.74],[-1.86,1.04,.38,.93],[1.68,1.05,.36,.92],[2.23,.99,.42,.82]],body);
-    shell(g,[[-1.13,.86,.82,.85],[-.55,.73,.85,1.5],[.63,.74,.85,1.51],[1.36,.88,.83,.87]],glass);
-    box(g,body,0,1.508,.05,1.49,.063,1.19);
-    box(g,trim,0,.48,2.23,1.92,.19,.13);
-    box(g,glass,0,.65,2.247,.51,.18,.03);
+    shell(g,[[-2.38,.78,.43,.69],[-2.21,.96,.37,.79],[-1.51,1.04,.34,.94],[-.42,1.01,.34,.94],
+      [.92,1.045,.34,.95],[1.73,1.075,.35,.93],[2.12,1.018,.37,.86],[2.29,.9,.42,.77]],body);
+    shell(g,[[-1.16,.86,.88,.92],[-.82,.82,.88,1.18],[-.42,.76,.90,1.48],[.1,.76,.90,1.52],
+      [.60,.78,.89,1.46],[1.05,.82,.88,1.22],[1.47,.87,.88,.93]],glass);
+    shell(g,[[-.56,.74,1.41,1.46],[-.33,.755,1.46,1.52],[.32,.75,1.46,1.51],[.68,.73,1.37,1.44]],body);
+    box(g,trim,0,.47,2.27,1.77,.145,.13);
+    box(g,interior,0,.61,2.29,.53,.19,.034);
+    box(g,interior,0,.53,-2.34,1.32,.17,.04);
     for(const side of [-1,1]) {
       box(g,tails,side*.64,.77,2.265,.59,.108,.055);
       box(g,heads,side*.65,.66,-2.37,.37,.085,.045);
       box(g,body,side*1.02,1.05,-.7,.25,.13,.29);
       for(const z of [-1.45,1.43]){
         const wheel=new T.Mesh(wheelGeo,rubber),rim=new T.Mesh(rimGeo,trim);
-        wheel.position.set(side*.9,.43,z);rim.position.copy(wheel.position);g.add(wheel,rim);
+        wheel.position.set(side*.92,.43,z);rim.position.copy(wheel.position);g.add(wheel,rim);
+        if(player){
+          const lip=new T.Mesh(rimLip,trim);
+          lip.position.set(side*1.13,.43,z);g.add(lip);
+          for(let spoke=0;spoke<5;spoke++){
+            const a=spoke*Math.PI*2/5;
+            const arm=box(g,trim,side*1.124,.43+Math.cos(a)*.11,z+Math.sin(a)*.11,.039,.235,.031);
+            arm.rotation.x=a;
+          }
+        }
       }
-      if(player){halo(g,side*.63,.75,2.29,1.55,.82,0xff3f65,.72);}
+      if(player){
+        halo(g,side*.63,.75,2.30,1.45,.67,0xff3f65,.71);
+        const tailBounce=new T.Mesh(new T.PlaneGeometry(1.65,4.3),new T.MeshBasicMaterial({
+          map:glow,color:0xff475b,transparent:true,opacity:.31,depthWrite:false,blending:T.AdditiveBlending
+        }));
+        tailBounce.rotation.x=-Math.PI/2;tailBounce.position.set(side*.7,.012,3.35);g.add(tailBounce);
+        box(g,interior,side*.37,1.04,.22,.31,.38,.27);
+      }
     }
     if(player){
-      box(g,trim,0,1.0,1.87,1.96,.095,.27);
-      box(g,neonMats[0],0,.618,2.277,.28,.065,.018);
+      box(g,body,0,.918,1.96,1.85,.062,.23);
+      box(g,jacket,-.38,1.06,-.28,.37,.36,.32);
+      const driverHead=new T.Mesh(headGeometry,complexion);
+      driverHead.position.set(-.38,1.298,-.32);
+      driverHead.scale.set(.88,1.09,.94);
+      g.add(driverHead);
+      box(g,interior,-.38,1.35,-.29,.21,.11,.16);
       const lights=new T.SpotLight(0xc6edf7,510,51,.43,.71,1.32);
       lights.position.set(0,.75,-2.02);lights.target.position.set(0,.03,-21);
       g.add(lights,lights.target);

@@ -8,6 +8,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   canvas.setAttribute('aria-hidden', 'true');
   container.appendChild(canvas);
 
+  const images=window.lucentVisuals;
   const block = 84;
   const cityLimit = 366;
   const halfRoad = 13;
@@ -72,6 +73,51 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   function screen(p) {
     return [width / 2 + p[0] * focal / p[2], height / 2 - p[1] * focal / p[2]];
   }
+  function texturedQuad(vertices,image,opacity) {
+    if(!image)return;
+    const points=vertices.map(local);
+    if(points.every(v=>v[2]<=near))return;
+    const uv=[[0,0],[image.naturalWidth,0],[image.naturalWidth,image.naturalHeight],[0,image.naturalHeight]];
+    const clipped=[];
+    for(let i=0;i<4;i++){
+      const j=(i+3)%4,a=points[j],b=points[i];
+      if((a[2]>=near)!==(b[2]>=near)){
+        const t=(near-a[2])/(b[2]-a[2]);
+        clipped.push({point:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,near],
+          uv:[uv[j][0]+(uv[i][0]-uv[j][0])*t,uv[j][1]+(uv[i][1]-uv[j][1])*t]});
+      }
+      if(b[2]>=near)clipped.push({point:b,uv:uv[i]});
+    }
+    for(const item of clipped)item.screen=screen(item.point);
+    if (clipped.every(v=>v.screen[0]<0)||clipped.every(v=>v.screen[0]>width)||
+        clipped.every(v=>v.screen[1]<0)||clipped.every(v=>v.screen[1]>height))return;
+    for(let i=1;i<clipped.length-1;i++){
+      const [a,b,c]=[clipped[0],clipped[i],clipped[i+1]];
+      const du=b.uv[0]-a.uv[0],dv=b.uv[1]-a.uv[1],eu=c.uv[0]-a.uv[0],ev=c.uv[1]-a.uv[1];
+      const det=du*ev-eu*dv;
+      if(Math.abs(det)<.001)continue;
+      const dx=b.screen[0]-a.screen[0],dy=b.screen[1]-a.screen[1];
+      const ex=c.screen[0]-a.screen[0],ey=c.screen[1]-a.screen[1];
+      const ax=(dx*ev-ex*dv)/det,ay=(dy*ev-ey*dv)/det,bx=(ex*du-dx*eu)/det,by=(ey*du-dy*eu)/det;
+      ctx.save();
+      ctx.globalAlpha=opacity;
+      ctx.beginPath();ctx.moveTo(...a.screen);ctx.lineTo(...b.screen);ctx.lineTo(...c.screen);ctx.closePath();ctx.clip();
+      ctx.transform(ax,ay,bx,by,a.screen[0]-ax*a.uv[0]-bx*a.uv[1],a.screen[1]-ay*a.uv[0]-by*a.uv[1]);
+      ctx.drawImage(image,0,0);
+      ctx.restore();
+    }
+  }
+  const groundPatterns=new Map();
+  function groundTexture(image,x1,z1,x2,z2,opacity,y=.025) {
+    if(!image)return;
+    if(!groundPatterns.has(image))groundPatterns.set(image,ctx.createPattern(image,'repeat'));
+    const pattern=groundPatterns.get(image);
+    if(!pattern)return;
+    ctx.save();
+    ctx.globalAlpha=opacity;
+    polygon([[x1,y,z1],[x2,y,z1],[x2,y,z2],[x1,y,z2]],pattern);
+    ctx.restore();
+  }
   function point(x, y, z) {
     const p = local([x, y, z]);
     if (p[2] < near || p[2] > viewDistance + 55) return null;
@@ -125,11 +171,19 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     water.addColorStop(1, '#182531');
     ctx.fillStyle = water;
     ctx.fillRect(0, horizon, width, height - horizon);
-    const moonX = width * .72 - Math.sin(heading) * width * .33;
-    const moonY = horizon - height * .155;
-    glow(moonX, moonY, height * .12, '#db9c80');
-    ctx.fillStyle = '#ecc8aa';
-    ctx.beginPath(); ctx.arc(moonX, moonY, Math.max(1, height * .013), 0, Math.PI * 2); ctx.fill();
+    const dawn=images?.get('lucent-dawn');
+    const sunX=width*.7-Math.sin(heading)*width*.35;
+    if(dawn){
+      const skyHeight=Math.max(1,horizon+2);
+      const skyWidth=Math.max(width*1.4,skyHeight*dawn.naturalWidth/dawn.naturalHeight);
+      const left=Math.max(width-skyWidth,Math.min(0,sunX-skyWidth*.66));
+      ctx.drawImage(dawn,left,0,skyWidth,skyHeight);
+    }else{
+      const sunY=horizon-height*.11;
+      glow(sunX,sunY,height*.16,'#efae87');
+      ctx.fillStyle='#ffe1ad';
+      ctx.beginPath();ctx.arc(sunX,sunY,Math.max(1,height*.016),0,Math.PI*2);ctx.fill();
+    }
     const interval = Math.max(15, width / 27);
     const slide = heading * 6;
     for (let i = -2; i < Math.ceil(width / interval) + 2; i++) {
@@ -145,7 +199,8 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const ix = Math.round(state.x / block), iz = Math.round(state.z / block);
     const firstX = Math.max(-4, ix - 4), lastX = Math.min(4, ix + 4);
     const firstZ = Math.max(-4, iz - 4), lastZ = Math.min(4, iz + 4);
-    ground(-351, -351, 351, 351, '#25343b');
+    ground(-351, -351, 351, 351, '#222931');
+    const asphalt=images?.get('asphalt'), pavement=images?.get('paving');
     for (let col = firstX; col <= lastX; col++) {
       const x = col * block;
       ground(x-halfRoad, firstZ*block-halfRoad, x+halfRoad, lastZ*block+halfRoad, '#29343b');
@@ -162,8 +217,15 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
         const margin = block * .87;
         if (depth < -margin || Math.abs(side) > Math.max(0,depth) * width / (2*focal) + margin) continue;
         if (col < 4 && row < 4) {
-          ground(x + halfRoad, z + halfRoad, x + block - halfRoad, z + block - halfRoad, '#4b5153', .08);
-          ground(x + halfRoad + .9, z + halfRoad + .9, x + block - halfRoad - .9, z + block - halfRoad - .9, '#394348', .13);
+          ground(x + halfRoad, z + halfRoad, x + block - halfRoad, z + block - halfRoad, '#68666a', .08);
+          ground(x + halfRoad + .9, z + halfRoad + .9, x + block - halfRoad - .9, z + block - halfRoad - .9, '#454951', .13);
+          if (depth < 137)groundTexture(pavement,x+13.3,z+13.3,x+70.7,z+70.7,.19,.14);
+        }
+        if (depth < 155 && asphalt) {
+          const opacity=.29-Math.max(0,depth)/900;
+          groundTexture(asphalt,x-13,z+13,x+13,z+71,opacity);
+          groundTexture(asphalt,x+13,z-13,x+71,z+13,opacity);
+          groundTexture(asphalt,x-13,z-13,x+13,z+13,opacity);
         }
         for (const d of [-11.2, 11.2]) {
           ground(x+d-.1, z+13, x+d+.1, z+71, '#737676');
@@ -173,15 +235,29 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
           ground(x-.14, z+d, x+.14, z+d+3.4, '#b39873');
           ground(x+d, z-.14, x+d+3.4, z+.14, '#b39873');
         }
-        ground(x+4.7, z+18, x+7.7, z+33, '#7188872b');
-        ground(x+6, z+23, x+7.2, z+47, '#bb9b782b');
-        ground(x+11, z+23, x+12, z+48, '#f1b67c30');
+        ground(x+4.7,z+18,x+7.7,z+33,'#7188870c');
+        ground(x+6,z+23,x+7.2,z+47,'#bb9b7809');
+        ground(x+11,z+23,x+12,z+48,'#f1b67c12');
       }
     }
   }
   function towerFace(a, b, tall, color, lit, distance, tint) {
     polygon([[...a],[...b],[b[0],tall,b[2]],[a[0],tall,a[2]]], color);
-    if (distance > 177) return;
+    if(distance>177)return;
+    const wall=images?.get(tall>44?'glass':lit<.29?'brick':lit>.78?'steel':'concrete');
+    const xAt=t=>a[0]+(b[0]-a[0])*t;
+    const zAt=t=>a[2]+(b[2]-a[2])*t;
+    if(wall){
+      const tiers=Math.ceil(tall/(tall>44?17:10));
+      for(let i=0;i<tiers;i++){
+        const top=tall*(i+1)/tiers, bottom=tall*i/tiers;
+        texturedQuad([[a[0],top,a[2]],[b[0],top,b[2]],[b[0],bottom,b[2]],[a[0],bottom,a[2]]],wall,tall>44?.72:.54);
+      }
+      if(distance<85){
+        polygon([[xAt(0),3.4,zAt(0)],[xAt(1),3.4,zAt(1)],[xAt(1),3.62,zAt(1)],[xAt(0),3.62,zAt(0)]],'#7a7a7079');
+        texturedQuad([[xAt(.14),3.22,zAt(.14)],[xAt(.47),3.22,zAt(.47)],[xAt(.47),.14,zAt(.47)],[xAt(.14),.14,zAt(.14)]],images.get('steel'),.79);
+      }
+    }
     const across = 4;
     const floors = Math.min(12, Math.floor(tall / 3.65));
     for (let floor = 0; floor < floors; floor++) {
@@ -189,7 +265,8 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       for (let col = 0; col < across; col++) {
         const center = (col + .5) / across;
         const randomLight = Math.sin((floor * 33 + col * 57 + lit * 103) * 2.13);
-        const left = center - .065, right = center + .065;
+        if (wall && tall > 44 && randomLight < .63) continue;
+        const left = center - .073, right = center + .073;
         const x = t => a[0] + (b[0] - a[0]) * t;
         const z = t => a[2] + (b[2] - a[2]) * t;
         polygon([[x(left),y,z(left)],[x(right),y,z(right)],[x(right),y+1.23,z(right)],[x(left),y+1.23,z(left)]],
@@ -217,8 +294,39 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const c = Math.cos(heading), s = Math.sin(heading);
     const pose = (side,h,front) => [x+side*c+front*s,h,z+side*s-front*c];
     const quad = (points, color) => polygon(points.map(p => pose(...p)),color);
-    quad([[-1.3,.01,-2.5],[1.3,.01,-2.5],[1.3,.01,2.35],[-1.3,.01,2.35]],'#070e18b8');
-    if (player) quad([[-1,.013,2],[1,.013,2],[4,.013,18],[-4,.013,18]],'#b2dfe020');
+    const shade = point(...pose(0,.018,-1.72));
+    if(shade){
+      const scale=focal/shade[2];
+      ctx.save();
+      ctx.translate(shade[0],shade[1]+scale*.05);
+      ctx.scale(1,.35);
+      glow(0,0,Math.max(1,scale*1.62),'#02060a');
+      ctx.restore();
+    }
+    if(player){
+      for(const side of [-1,1]){
+        const low=point(...pose(side*.68,.02,2)), high=point(...pose(side*1.8,.02,17));
+        if(low&&high){
+          const beam=ctx.createLinearGradient(low[0],low[1],high[0],high[1]);
+          beam.addColorStop(0,'#c7efdc43');beam.addColorStop(.35,'#a0d6d421');beam.addColorStop(1,'#a0d6d400');
+          quad([[side*.68-.36,.018,2],[side*.68+.36,.018,2],[side*1.8+1.38,.018,17],[side*1.8-1.38,.018,17]],beam);
+        }
+        const reflected=point(...pose(side*.71,.018,-3.1));
+        if(reflected){
+          const radius=focal/reflected[2]*.39;
+          ctx.save();ctx.translate(reflected[0],reflected[1]);ctx.scale(.62,2.6);
+          ctx.globalAlpha=.46;glow(0,0,radius,'#e8505d');ctx.restore();
+        }
+      }
+      const photo=images?.get('coupe-rear');
+      const base=point(...pose(0,.06,-2.14));
+      const edge=point(...pose(1.03,.06,-2.14));
+      if(photo&&base&&edge){
+        const w=Math.max(1,Math.abs(edge[0]-base[0])*2.08), h=w*photo.naturalHeight/photo.naturalWidth;
+        ctx.drawImage(photo,base[0]-w*.5,base[1]-h,w,h);
+        return;
+      }
+    }
     quad([[-1.04,.36,-2.2],[1.04,.36,-2.2],[1.04,.87,-2.2],[-1.04,.87,-2.2]],'#26353d');
     for (const side of [-1,1]) {
       for (const f of [-1.45,1.46]) {
@@ -253,7 +361,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   function signage(mark) {
     const p = point(mark.x,mark.y,mark.z);
     if (!p) return;
-    const size = Math.min(61, Math.max(2,1.8*focal/p[2]));
+    const size = Math.min(39, Math.max(2,1.45*focal/p[2]));
     if (size < 5) return;
     ctx.font = '800 '+size+'px system-ui';
     ctx.textAlign = 'center';
@@ -309,7 +417,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   function draw(state, dt, time, objective) {
     const speed = Math.min(1, Math.abs(state.speed)/45);
     const back = 9.7 + speed * 2.4;
-    const side = state.view === 'menu' ? -5.9 + Math.sin(time*.33)*.45 : 0;
+    const side = state.view === 'menu' ? -2.6 + Math.sin(time*.33)*.25 : 0;
     const heading = state.heading + (state.view === 'menu' ? .17 : 0);
     const s = Math.sin(state.heading), c = Math.cos(state.heading);
     camera.x = state.x - s*back + c*side;

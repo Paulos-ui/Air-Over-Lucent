@@ -60,3 +60,28 @@
 }
 
 .primary:disabled,.secondary:disabled { opacity:.48; cursor:default; box-shadow:none; }
+
+#sky {
+  background: linear-gradient(180deg,#16263600 30%,#33414d50 56%,#24323d 67%),
+    url('assets/lucent-dawn.webp') center top / 100% 69% no-repeat, #293540;
+}
+.driver {
+  display:flex; align-items:center; gap:.7rem; width:max-content; margin:0 0 1.18rem;
+  color:#f4f2e9;
+}
+.driver img {
+  display:block; width:2.9rem; height:2.9rem; border-radius:.36rem; object-fit:cover;
+  border:1px solid #a9e8dc69; background:#152733;
+}
+.driver strong,.driver span { display:block; }
+.driver span { font-size:.78rem; margin-top:.16rem; color:#c6d5d8; }
+.menu-inner { position:relative; }
+@media (max-height:520px) {
+  .driver { margin:0 0 .5rem; }
+  .driver img { width:2.2rem; height:2.2rem; }
+  .menu h1 { font-size:clamp(2.55rem,7vw,4.7rem); }
+}
+@media (max-height:365px) {
+  .driver { display:none; }
+  .menu-help { display:none; }
+}

@@ -67,6 +67,7 @@
     if(compact) ui['menu-title'].textContent=title;
     else ui['menu-title'].innerHTML='DEAD AIR <span>OVER LUCENT</span>';
     ui['menu-title'].classList.toggle('compact',compact);
+    byId('driver').hidden=compact;
     ui['menu-kicker'].textContent=kicker;
     ui['menu-copy'].textContent=copy;
     ui.primary.textContent=primary;ui.secondary.textContent=secondary;

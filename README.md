@@ -1,6 +1,6 @@
 # Dead Air Over Lucent
 
-A browser-based 3D driving game. During a storm, you guide Lucent Bay's last ferry to safety by tuning in three emergency transmissions from the driver's seat.
+A browser-based 3D driving game. Play as harbour courier Mara Vale and guide Lucent Bay's last ferry to safety by tuning in three emergency transmissions as the storm breaks at dawn.
 
 ## Play
 
@@ -18,3 +18,9 @@ Open `index.html` in a modern browser. The game uses compatibility graphics auto
 3. Deploy, then open the live URL on desktop and on iPhone and Android. Test the first radio stop, steering while accelerating, audio after tapping the sound button, and play at Low graphics.
 
 Everything needed to play is bundled locally. The folder has no npm install step, external assets, API keys, or backend. Three.js is distributed under the MIT license in `three-LICENSE.txt`.
+
+## Art assets
+
+The local `assets/` folder contains optimized WebP artwork made with built-in ImageGen. Keep the folder next to `index.html` when publishing. Both renderers use the artwork.
+
+Prompts covered a straight-on six-material atlas (wet asphalt, stained concrete, weathered brick, office glass, corrugated steel, granite paving), a transparent rain-soaked petrol-blue coupe from the chase-camera angle, a natural portrait of Mara Vale inside her car, and a sky-only coastal sunrise through storm clouds.
