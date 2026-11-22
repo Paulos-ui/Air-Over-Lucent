@@ -2,7 +2,9 @@
 'use strict';
 
 (() => {
-  const names=['asphalt','concrete','brick','glass','steel','paving','coupe-rear','lucent-dawn'];
+  const names=['asphalt','concrete','brick','glass','steel','paving','coupe-rear','lucent-dawn',
+    'fish-market','townhouse','loading-bay','corner-cafe',
+    'ped-walk-0','ped-walk-1','ped-walk-2','ped-walk-3','ped-porter','ped-market','ped-maintenance','ped-foreman'];
   const assets=new Map();
   if(typeof Image==='function'){
     for(const name of names){

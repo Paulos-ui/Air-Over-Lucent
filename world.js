@@ -3,6 +3,7 @@
 window.makeCity = function makeCity(container) {
   const T = window.THREE;
   const images=window.lucentVisuals;
+  const streets=window.lucentStreets;
   const scene = new T.Scene();
   scene.fog = new T.FogExp2(0x72757e, 0.00285);
   const camera = new T.PerspectiveCamera(58, 1, .1, 1250);
@@ -197,24 +198,53 @@ window.makeCity = function makeCity(container) {
     halo(scene,x,y,z+.2,w*1.6,w*.62,neon[i],.42);
     reflect(x,z+4,neon[i],w*.8,21,rotation);
   }
+  const streetFrontages=new Map();
+  for(const name of ['fish-market','townhouse','loading-bay','corner-cafe']){
+    const map=texture(384,256,(c,w,h)=>{c.fillStyle='#5b625f';c.fillRect(0,0,w,h);});
+    applyPhoto(map,name);
+    streetFrontages.set(name,material(0xbec4bf,{map,emissive:0x826951,emissiveMap:map,emissiveIntensity:.25}));
+  }
+  const rooftopAir=material(0x696e6a,{metalness:.25}), coping=material(0x6c6865);
+  const industrialWall=material(0x627273,{map:shutterMap,metalness:.32});
   function building(x,z,w,d,h,i) {
-    box(scene,faces[i],x,h/2,z,w,h,d);
+    const design=streets.architecture(x,z,h);
+    h=design.height;
+    const sideX=Math.sign(Math.round(x/block)*block-x);
+    const sideZ=Math.sign(Math.round(z/block)*block-z);
+    const streetFace=streetFrontages.get(design.frontage);
+    const modules=design.roof==='industrial'?1:2;
+    const wall=design.roof==='industrial'?industrialWall:faces[i];
+    box(scene,wall,x,h/2,z,w,h,d);
     box(scene,roof,x,h+.24,z,w+.6,.52,d+.6);
-    box(scene,lintel,x,3.55,z+d/2+.06,w*.87,.23,.22);
-    box(scene,shutter,x-w*.16,1.75,z+d/2+.075,w*.44,3.25,.16);
-    box(scene,lintel,x+w*.3,1.63,z+d/2+.08,w*.15,3.0,.18);
+    for(let slot=0;slot<modules;slot++){
+      const offset=(slot+.5)/modules-.5;
+      box(scene,streetFace,x+w*offset,2.2,z+sideZ*(d/2+.068),w/modules*.92,4.15,.1);
+      box(scene,streetFace,x+sideX*(w/2+.068),2.2,z+d*offset,.1,4.15,d/modules*.92);
+    }
+    box(scene,coping,x,4.42,z+sideZ*(d/2+.10),w,.21,.38);
+    box(scene,coping,x+sideX*(w/2+.10),4.42,z,.38,.21,d);
+    if(design.roof==='market'){
+      box(scene,shutter,x,3.55,z+sideZ*(d/2+.58),w*.64,.12,1.18);
+      box(scene,shutter,x+sideX*(w/2+.58),3.55,z,1.18,.12,d*.64);
+    }
+    if(design.roof==='terrace'){
+      for(let step=0;step<4;step++)box(scene,roof,x,h+.4+step*.38,z,w+.4,.4,d*(1-step*.18));
+    }else{
+      box(scene,rooftopAir,x+w*.18,h+.86,z+d*.12,w*.26,1.29,d*.29);
+      if(design.roof==='industrial')box(scene,rooftopAir,x-w*.2,h+1.0,z-d*.18,w*.16,1.6,d*.16);
+    }
     if(h>33){
       box(scene,lintel,x,h*.44,z+d/2+.08,w+.18,.22,.31);
       box(scene,lintel,x,h*.72,z+d/2+.08,w+.18,.22,.31);
     }
     colliders.push({x,z,w:w/2+1.1,d:d/2+1.1});
-    if(h>60) {
+    if(h>58&&design.roof==='office') {
       box(scene,roof,x,h+2,z,w*.47,4.2,d*.5);
       box(scene,roof,x,h+7,z,.25,10,.25);
       box(scene,neonMats[1],x,h+12,z,.45,.45,.45);
       halo(scene,x,h+12,z,4,4,neon[1],.43);
     }
-    if(random()<.62) {
+    if(random()<.46&&design.roof==='office') {
       const n=Math.floor(random()*4);
       box(scene,neonMats[n],x,h*.74,z+d/2+.08,w*.93,.14,.19);
       box(scene,neonMats[n],x-w/2+.3,h*.62,z+d/2+.09,.15,h*.23,.16);
@@ -313,6 +343,56 @@ window.makeCity = function makeCity(container) {
     box(scene,pole,0,.17,side*351,708,1.6,1.4);
   }
 
+  const streetHardware=material(0x394644,{metalness:.28}), timber=material(0x806553);
+  const signAmber=material(0xb69559), enamel=material(0x446a60), curbStone=material(0x81837a);
+  const shelterGlass=material(0x71949c,{transparent:true,opacity:.28});
+  const leaves=material(0x4f7159);
+  const roadLampRed=flat(0xd65e54),roadLampGreen=flat(0x75bb79);
+  const signalMeshes=[];
+  for(const {kind,x,z} of streets.props){
+    if(kind==='planter'){
+      box(scene,curbStone,x,.4,z,1.1,.53,1.1);
+      box(scene,timber,x,1.09,z,.15,1.27,.15);
+      const geometry=new T.IcosahedronGeometry(.72,1);
+      const tree=new T.Mesh(geometry,leaves);
+      tree.position.set(x,2.11,z);tree.scale.set(.82,1.25,.91);scene.add(tree);
+    }else if(kind==='stall'){
+      for(const offset of [-.75,.75])box(scene,streetHardware,x,1.42,z+offset,.09,2.57,.09);
+      box(scene,enamel,x,2.78,z,1.8,.17,2.5);
+      for(let i=-2;i<=2;i++)box(scene,curbStone,x,2.874,z+i*.46,1.82,.035,.16);
+      box(scene,timber,x,.59,z,1.08,.83,1.9);
+      box(scene,curbStone,x,1.06,z,1.2,.12,2.08);
+      box(scene,enamel,x,.18+1.06,z-.62,.59,.22,.55);
+      box(scene,signAmber,x,.18+1.06,z+.56,.54,.22,.61);
+    }else if(kind==='shelter'){
+      box(scene,streetHardware,x,2.6,z,1.36,.16,3.56);
+      for(const offset of [-1.6,1.6])box(scene,streetHardware,x,1.38,z+offset,.09,2.48,.09);
+      box(scene,shelterGlass,x+.52,1.56,z,.07,1.88,3.3);
+      box(scene,timber,x+.18,.63,z,.44,.12,1.99);
+    }else if(kind==='bench'){
+      for(const offset of [-.64,.64])box(scene,streetHardware,x,.38,z+offset,.34,.48,.12);
+      box(scene,timber,x,.65,z,.54,.11,1.8);
+      box(scene,timber,x+.21,.91,z,.12,.39,1.8);
+    }else if(kind==='signal'){
+      box(scene,streetHardware,x,1.77,z,.13,3.54,.13);
+      box(scene,streetHardware,x,3.68,z,.42,1.04,.33);
+      const dot=new T.Mesh(new T.SphereGeometry(.112,8,6),roadLampGreen);
+      dot.position.set(x,3.41,z+.16);signalMeshes.push(dot);scene.add(dot);
+    }else if(kind==='barrier'){
+      box(scene,curbStone,x,.45,z,.28,.62,1.8);
+      for(const offset of [-.61,0,.61])box(scene,signAmber,x,.65,z+offset,.3,.24,.22);
+    }else if(kind==='pallet'){
+      box(scene,timber,x,.23,z,1.15,.18,1.45);
+      box(scene,timber,x+.12,.6,z-.16,.86,.55,.82);
+      box(scene,signAmber,x-.12,.51,z+.53,.6,.42,.56);
+    }else if(kind==='crate'){
+      box(scene,timber,x,.4,z,.68,.53,.72);
+      box(scene,signAmber,x,.671,z,.7,.032,.73);
+    }else{
+      box(scene,streetHardware,x,.62,z,.17,.98,.17);
+      box(scene,signAmber,x,.95,z,.19,.13,.19);
+    }
+  }
   batchBoxes=false;
   for(const [mat,list] of staticBoxes){
     const mesh=new T.InstancedMesh(unitBox,mat,list.length);
@@ -323,6 +403,53 @@ window.makeCity = function makeCity(container) {
     scene.add(mesh);
   }
   staticBoxes.clear();
+
+  const personTextures=new Map();
+  function spriteTexture(name,flip){
+    const image=images?.get(name);
+    if(!image)return null;
+    const key=name+flip;
+    if(!personTextures.has(key)){
+      const map=new T.Texture(image);
+      map.colorSpace=T.SRGBColorSpace;
+      if(flip){map.repeat.x=-1;map.offset.x=1;}
+      map.needsUpdate=true;
+      personTextures.set(key,map);
+    }
+    return personTextures.get(key);
+  }
+  const walkers=streets.pedestrians.map(person=>{
+    const figure=new T.Sprite(new T.SpriteMaterial({transparent:true,alphaTest:.17,depthWrite:false,toneMapped:false}));
+    figure.center.set(.5,0);
+    const shade=new T.Mesh(new T.PlaneGeometry(.86,.66),new T.MeshBasicMaterial({
+      map:glow,transparent:true,depthWrite:false,color:0x152324,opacity:.54
+    }));
+    shade.rotation.x=-Math.PI/2;
+    scene.add(figure,shade);
+    return {person,figure,shade};
+  });
+  function walkStreets(state,time,quality){
+    const limit=quality==='low'?72:112;
+    for(const {person,figure,shade} of walkers){
+      const pose=streets.pose(person,time);
+      const map=spriteTexture(pose.image,pose.flip);
+      const visible=Boolean(map)&&Math.hypot(state.x-pose.x,state.z-pose.z)<limit;
+      figure.visible=shade.visible=visible;
+      if(!map||!visible)continue;
+      if(figure.material.map!==map){
+        figure.material.map=map;
+        figure.material.needsUpdate=true;
+      }
+      figure.position.set(pose.x,.16+pose.rise,pose.z);
+      figure.scale.set(person.height*map.image.naturalWidth/map.image.naturalHeight,person.height,1);
+      shade.position.set(pose.x,.155,pose.z);
+    }
+    for(const dot of signalMeshes){
+      const stop=time%17>11;
+      dot.material=stop?roadLampRed:roadLampGreen;
+      dot.position.y=stop?4.0:3.42;
+    }
+  }
 
   const paint=new T.MeshPhysicalMaterial({color:0x245565,metalness:.68,roughness:.27,clearcoat:.91,clearcoatRoughness:.12,envMapIntensity:1.2});
   const glass=new T.MeshPhysicalMaterial({color:0x3d5467,metalness:.19,roughness:.17,transparent:true,opacity:.59,clearcoat:.75});
@@ -476,6 +603,7 @@ window.makeCity = function makeCity(container) {
     const lightDistance=graphics==='low'?125:graphics==='balanced'?220:420;
     for(const light of staticHalos) light.visible=light.position.distanceToSquared(camera.position)<lightDistance*lightDistance;
     aviationLamp.material.opacity=.32+.4*Math.pow(Math.max(0,Math.sin(time*2.9)),4);
+    walkStreets(state,time,graphics);
     renderer.render(scene,camera);
   }
   function blocked(x,z) {

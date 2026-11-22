@@ -9,6 +9,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   container.appendChild(canvas);
 
   const images=window.lucentVisuals;
+  const streets=window.lucentStreets;
   const block = 84;
   const cityLimit = 366;
   const halfRoad = 13;
@@ -38,10 +39,11 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     for (let col = -4; col < 4; col++) {
       for (const dx of [-13, 13]) {
         for (const dz of [-13, 13]) {
-          buildings.push({
-            x: (col + .5) * block + dx, z: (row + .5) * block + dz,
-            w: 8 + random() * 4, d: 8 + random() * 4, h: 13 + random() ** 1.7 * (row < 0 ? 92 : 64),
-            hue: Math.round(189 + random() * 43), lit: random(), color: random() > .52 ? '#efbc89' : '#89b9c3',
+          const x=(col+.5)*block+dx,z=(row+.5)*block+dz;
+          const w=8+random()*4,d=8+random()*4,nominal=13+random()**1.7*(row<0?92:64);
+          const design=streets.architecture(x,z,nominal);
+          buildings.push({x,z,w,d,h:design.height,design,
+            hue: Math.round(189+random()*43),lit:random(),color:random()>.52?'#efbc89':'#89b9c3',
           });
         }
       }
@@ -77,7 +79,8 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     if(!image)return;
     const points=vertices.map(local);
     if(points.every(v=>v[2]<=near))return;
-    const uv=[[0,0],[image.naturalWidth,0],[image.naturalWidth,image.naturalHeight],[0,image.naturalHeight]];
+    const iw=image.naturalWidth||image.width,ih=image.naturalHeight||image.height;
+    const uv=[[0,0],[iw,0],[iw,ih],[0,ih]];
     const clipped=[];
     for(let i=0;i<4;i++){
       const j=(i+3)%4,a=points[j],b=points[i];
@@ -110,7 +113,11 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   const groundPatterns=new Map();
   function groundTexture(image,x1,z1,x2,z2,opacity,y=.025) {
     if(!image)return;
-    if(!groundPatterns.has(image))groundPatterns.set(image,ctx.createPattern(image,'repeat'));
+    if(!groundPatterns.has(image)){
+      const pattern=ctx.createPattern(image,'repeat');
+      if(typeof pattern?.setTransform==='function'&&typeof DOMMatrix==='function')pattern.setTransform(new DOMMatrix().scale(.28));
+      groundPatterns.set(image,pattern);
+    }
     const pattern=groundPatterns.get(image);
     if(!pattern)return;
     ctx.save();
@@ -222,10 +229,17 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
           if (depth < 137)groundTexture(pavement,x+13.3,z+13.3,x+70.7,z+70.7,.19,.14);
         }
         if (depth < 155 && asphalt) {
-          const opacity=.29-Math.max(0,depth)/900;
+          const opacity=.23-Math.max(0,depth)/1100;
           groundTexture(asphalt,x-13,z+13,x+13,z+71,opacity);
           groundTexture(asphalt,x+13,z-13,x+71,z+13,opacity);
           groundTexture(asphalt,x-13,z-13,x+13,z+13,opacity);
+        }
+        if ((row+col)%2===0&&depth<182) {
+          for(let offset=-8.25;offset<=8.25;offset+=1.65){
+            ground(x+offset,z+8.7,x+offset+.88,z+11.05,'#b6b9b199',.029);
+            ground(x+offset,z-11.05,x+offset+.88,z-8.7,'#b6b9b199',.029);
+          }
+          ground(x-10.8,z+12.4,x+10.8,z+12.66,'#b9b6ac87',.029);
         }
         for (const d of [-11.2, 11.2]) {
           ground(x+d-.1, z+13, x+d+.1, z+71, '#737676');
@@ -241,10 +255,25 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       }
     }
   }
-  function towerFace(a, b, tall, color, lit, distance, tint) {
+  const masonryTiles=new Map();
+  function wallImage(name){
+    const photo=images?.get(name);
+    if(!photo||name!=='brick')return photo;
+    if(!masonryTiles.has(photo)){
+      const tile=document.createElement('canvas');
+      tile.width=768;tile.height=384;
+      const tileContext=tile.getContext('2d');
+      for(let row=0;row<4;row++)for(let col=0;col<12;col++){
+        tileContext.drawImage(photo,col*64,row*96,64,96);
+      }
+      masonryTiles.set(photo,tile);
+    }
+    return masonryTiles.get(photo);
+  }
+  function towerFace(a, b, tall, color, lit, distance, tint, design) {
     polygon([[...a],[...b],[b[0],tall,b[2]],[a[0],tall,a[2]]], color);
     if(distance>177)return;
-    const wall=images?.get(tall>44?'glass':lit<.29?'brick':lit>.78?'steel':'concrete');
+    const wall=wallImage(design.roof==='office'?'glass':design.roof==='terrace'?'brick':design.roof==='industrial'?'steel':'concrete');
     const xAt=t=>a[0]+(b[0]-a[0])*t;
     const zAt=t=>a[2]+(b[2]-a[2])*t;
     if(wall){
@@ -253,24 +282,31 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
         const top=tall*(i+1)/tiers, bottom=tall*i/tiers;
         texturedQuad([[a[0],top,a[2]],[b[0],top,b[2]],[b[0],bottom,b[2]],[a[0],bottom,a[2]]],wall,tall>44?.72:.54);
       }
-      if(distance<85){
-        polygon([[xAt(0),3.4,zAt(0)],[xAt(1),3.4,zAt(1)],[xAt(1),3.62,zAt(1)],[xAt(0),3.62,zAt(0)]],'#7a7a7079');
-        texturedQuad([[xAt(.14),3.22,zAt(.14)],[xAt(.47),3.22,zAt(.47)],[xAt(.47),.14,zAt(.47)],[xAt(.14),.14,zAt(.14)]],images.get('steel'),.79);
+      if(distance<132){
+        const groundFront=images?.get(design.frontage);
+        const sections=design.roof==='industrial'?1:2;
+        for(let slot=0;slot<sections;slot++){
+          const start=(slot+.045)/sections,end=(slot+.955)/sections;
+          texturedQuad([[xAt(start),4.3,zAt(start)],[xAt(end),4.3,zAt(end)],
+            [xAt(end),.16,zAt(end)],[xAt(start),.16,zAt(start)]],groundFront,.91);
+        }
+        polygon([[xAt(0),4.28,zAt(0)],[xAt(1),4.28,zAt(1)],[xAt(1),4.52,zAt(1)],[xAt(0),4.52,zAt(0)]],'#5b514d');
       }
     }
     const across = 4;
-    const floors = Math.min(12, Math.floor(tall / 3.65));
-    for (let floor = 0; floor < floors; floor++) {
+    const floors = Math.min(16, Math.floor(tall / 3.65));
+    for (let floor = 1; floor < floors; floor++) {
       const y = 2.15 + floor * 3.65;
       for (let col = 0; col < across; col++) {
         const center = (col + .5) / across;
         const randomLight = Math.sin((floor * 33 + col * 57 + lit * 103) * 2.13);
-        if (wall && tall > 44 && randomLight < .63) continue;
+        if(design.roof==='industrial'&&(floor>2||col%2===0))continue;
+        if(design.roof==='office'&&randomLight<.5)continue;
         const left = center - .073, right = center + .073;
         const x = t => a[0] + (b[0] - a[0]) * t;
         const z = t => a[2] + (b[2] - a[2]) * t;
         polygon([[x(left),y,z(left)],[x(right),y,z(right)],[x(right),y+1.23,z(right)],[x(left),y+1.23,z(left)]],
-          randomLight > .43 ? tint : randomLight < -.24 ? '#1b2730' : '#465762');
+          randomLight>.56?tint+(design.roof==='office'?'74':'a2'):randomLight<-.32?'#142530ba':'#46576261');
       }
     }
   }
@@ -278,13 +314,22 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const a = [b.x-b.w,.13,b.z-b.d], p = [b.x+b.w,.13,b.z-b.d];
     const q = [b.x+b.w,.13,b.z+b.d], r = [b.x-b.w,.13,b.z+b.d];
     const fade = Math.min(13, distance / 20);
-    const dark = 'hsl(' + b.hue + ' 18% ' + (19 + fade) + '%)';
-    const bright = 'hsl(' + b.hue + ' 15% ' + (25 + fade) + '%)';
-    if (camera.z <= b.z) towerFace(p, a, b.h, bright, b.lit, distance, b.color);
-    else towerFace(r, q, b.h, bright, b.lit, distance, b.color);
-    if (camera.x <= b.x) towerFace(a, r, b.h, dark, b.lit + .21, distance, b.color);
-    else towerFace(q, p, b.h, dark, b.lit + .21, distance, b.color);
-    polygon([a,p,q,r].map(v => [v[0],b.h,v[2]]), '#45525a');
+    const warm=b.design.roof==='terrace';
+    const hue=warm?17:b.hue;
+    const dark='hsl('+hue+' 19% '+(18+fade)+'%)';
+    const bright='hsl('+hue+' 18% '+(26+fade)+'%)';
+    if(camera.z<=b.z)towerFace(p,a,b.h,bright,b.lit,distance,b.color,b.design);
+    else towerFace(r,q,b.h,bright,b.lit,distance,b.color,b.design);
+    if(camera.x<=b.x)towerFace(a,r,b.h,dark,b.lit+.21,distance,b.color,b.design);
+    else towerFace(q,p,b.h,dark,b.lit+.21,distance,b.color,b.design);
+    polygon([a,p,q,r].map(v=>[v[0],b.h,v[2]]),'#454b4c');
+    if(b.design.roof==='terrace'){
+      const ridgeA=[b.x-b.w,b.h+2.25,b.z],ridgeB=[b.x+b.w,b.h+2.25,b.z];
+      const face=camera.z<b.z?[a,p]:[r,q];
+      polygon([[face[0][0],b.h,face[0][2]],[face[1][0],b.h,face[1][2]],ridgeB,ridgeA],'#595759');
+    }else{
+      solid(b.x,b.z,b.w*.73,b.d*.7,b.h,1.5,['#596369','#39454d','#303a3d']);
+    }
     if (b.h > 62) {
       const antenna = point(b.x,b.h + 3,b.z);
       if (antenna) glow(antenna[0],antenna[1],focal / antenna[2] * .62,'#fc8065');
@@ -345,6 +390,93 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       if (lamp) glow(lamp[0],lamp[1],focal/lamp[2]*.57,'#f14b5e');
       quad([[outer,.64,2.25],[inner,.64,2.25],[inner,.79,2.25],[outer,.79,2.25]],'#ccedf0');
     }
+  }
+  function solid(x,z,w,d,y,h,colors) {
+    const l=x-w/2,r=x+w/2,f=z-d/2,b=z+d/2,u=y+h;
+    const side=camera.x<x?l:r, end=camera.z<z?f:b;
+    polygon([[side,y,f],[side,y,b],[side,u,b],[side,u,f]],colors[1]);
+    polygon([[l,y,end],[r,y,end],[r,u,end],[l,u,end]],colors[2]);
+    polygon([[l,u,f],[r,u,f],[r,u,b],[l,u,b]],colors[0]);
+  }
+  const streetColors={
+    tar:['#555f60','#394346','#424a4a'], cedar:['#8a6d56','#5b473c','#70594a'],
+    concrete:['#858786','#565e5e','#686d69'], amber:['#ddb475','#8d663e','#b0804b'],
+    bottle:['#4d6f65','#304b45','#3f5850'], cream:['#a6a897','#6c7268','#878d81'],
+  };
+  function prop(item,time) {
+    const {x,z,kind}=item;
+    const {tar,cedar,concrete,amber,bottle,cream}=streetColors;
+    if(kind==='crate'||kind==='pallet'){
+      if(kind==='pallet'){
+        solid(x,z,1.16,1.45,.13,.18,cedar);
+        solid(x+.13,z-.16,.87,.83,.31,.58,cedar);
+        solid(x-.12,z+.53,.62,.58,.29,.45,amber);
+      }else{
+        solid(x,z,.68,.72,.13,.54,cedar);
+        solid(x,z,.71,.74,.64,.036,amber);
+      }
+    }else if(kind==='planter'){
+      solid(x,z,1.1,1.1,.13,.52,concrete);
+      solid(x,z,.86,.91,.65,.22,bottle);
+      solid(x,z,.115,.13,.83,1.25,cedar);
+      const crown=point(x,2.25,z);
+      if(crown){
+        const size=Math.min(41,focal/crown[2]*.54);
+        ctx.fillStyle='#526d58';
+        for(let i=0;i<6;i++){
+          const angle=i*Math.PI/3;
+          ctx.beginPath();ctx.arc(crown[0]+size*.45*Math.cos(angle),crown[1]+size*.41*Math.sin(angle),size*.57,0,Math.PI*2);ctx.fill();
+        }
+      }
+    }else if(kind==='stall'){
+      for(const offset of [-.75,.75])solid(x,z+offset,.09,.09,.13,2.65,tar);
+      solid(x,z,1.75,2.55,2.71,.15,bottle);
+      for(let i=-2;i<=2;i++)solid(x,z+i*.46,1.78,.17,2.84,.035,cream);
+      solid(x,z,1.03,1.89,.16,.87,cedar);
+      solid(x,z,1.26,2.1,1.02,.11,cream);
+      solid(x-.08,z-.6,.58,.61,1.14,.26,bottle);
+      solid(x+.04,z+.52,.60,.68,1.14,.24,amber);
+    }else if(kind==='shelter'){
+      solid(x,z,1.4,3.6,2.53,.15,tar);
+      for(const offset of [-1.6,1.6])solid(x,z+offset,.1,.1,.13,2.5,tar);
+      solid(x+.55,z,.09,3.36,.6,1.88,['#30484f99','#31505899','#44656c99']);
+      solid(x+.18,z,.46,2.03,.58,.09,amber);
+    }else if(kind==='bench'){
+      for(const offset of [-.68,.68])solid(x,z+offset,.31,.11,.13,.47,tar);
+      solid(x,z,.55,1.8,.59,.11,cedar);
+      solid(x+.23,z,.12,1.8,.71,.43,cedar);
+    }else if(kind==='barrier'){
+      solid(x,z,.28,1.8,.13,.61,concrete);
+      for(const offset of [-.7,0,.7])solid(x,z+offset,.3,.21,.43,.26,amber);
+    }else if(kind==='signal'){
+      solid(x,z,.13,.13,0,3.52,tar);
+      solid(x,z,.42,.33,3.12,1.03,tar);
+      const p=point(x,3.33+((time%17)>11?.58:0),z);
+      if(p)glow(p[0],p[1],Math.max(3,focal/p[2]*.34),(time%17)>11?'#ef6455':'#77be94');
+    }else{
+      solid(x,z,.17,.17,.13,1.02,tar);
+      solid(x,z,.19,.19,.84,.13,amber);
+    }
+  }
+  function pedestrian(person,pose) {
+    const foot=point(pose.x,.15,pose.z), head=point(pose.x,person.height+.15+pose.rise,pose.z);
+    if(!foot||!head)return;
+    const h=foot[1]-head[1];
+    if(h<4)return;
+    glow(foot[0],foot[1],h*.19,'#172225');
+    const sprite=images?.get(pose.image);
+    if(!sprite){
+      solid(pose.x,pose.z,.44,.23,.57,.76,streetColors.bottle);
+      solid(pose.x,pose.z,.24,.24,1.34,.25,streetColors.cedar);
+      return;
+    }
+    const w=h*sprite.naturalWidth/sprite.naturalHeight;
+    ctx.save();
+    ctx.globalAlpha=Math.max(.58,1-foot[2]/385);
+    ctx.translate((foot[0]+head[0])*.5,foot[1]);
+    if(pose.flip)ctx.scale(-1,1);
+    ctx.drawImage(sprite,-w/2,-h,w,h);
+    ctx.restore();
   }
   function streetlight(light) {
     const p = point(light.x,6.7,light.z);
@@ -440,6 +572,13 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     for (const b of buildings) visible(b.x,b.z,18,'building',b);
     for (const light of lights) visible(light.x,light.z,7,'lamp',light);
     for (const mark of signs) visible(mark.x,mark.z,10,'sign',mark);
+    for(const item of streets.props){
+      if(Math.hypot(item.x-state.x,item.z-state.z)<125)visible(item.x,item.z,3,'prop',item);
+    }
+    for(const person of streets.pedestrians){
+      const pose=streets.pose(person,time);
+      if(Math.hypot(pose.x-state.x,pose.z-state.z)<104)visible(pose.x,pose.z,1,'person',{person,pose});
+    }
     for (const item of cars) {
       const [x,z] = carLocation(item);
       visible(x,z,4,'car',[x,z,item.horizontal?item.direction*Math.PI/2:item.direction===1?Math.PI:0,item.paint,false]);
@@ -451,6 +590,8 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       if (kind === 'building') building(data,distance);
       else if (kind === 'lamp') streetlight(data);
       else if (kind === 'sign') signage(data);
+      else if(kind==='prop')prop(data,time);
+      else if(kind==='person')pedestrian(data.person,data.pose);
       else if (kind === 'car') car(...data);
       else if (kind === 'beacon') beacon(data,time,false);
     }
