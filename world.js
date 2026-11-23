@@ -20,11 +20,14 @@ window.makeCity = function makeCity(container) {
   sunrise.position.set(155,58,-510);
   scene.add(sunrise,sunrise.target);
   sunrise.castShadow=true;
-  sunrise.shadow.mapSize.set(1536,1536);
+  sunrise.shadow.mapSize.set(1024,1024);
   Object.assign(sunrise.shadow.camera,{left:-59,right:59,top:59,bottom:-59,near:2,far:285});
   sunrise.shadow.camera.updateProjectionMatrix();
   sunrise.shadow.normalBias=.11;
-  if(renderer.shadowMap)renderer.shadowMap.type=T.PCFSoftShadowMap;
+  if(renderer.shadowMap){
+    renderer.shadowMap.type=T.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate=false;
+  }
   const fill = new T.DirectionalLight(0x87bde9, 1.2);
   fill.position.set(-90,30,110);
   scene.add(fill);
@@ -438,27 +441,36 @@ window.makeCity = function makeCity(container) {
     }));
     shade.rotation.x=-Math.PI/2;
     scene.add(figure,shade);
-    return {person,figure,shade,limbs:[]};
+    return {person,figure,shade,limbs:[],lastTime:-1,distant:false};
   });
-  function walkStreets(state,time,quality){
-    const limit=quality==='low'?65:95;
-    for(const {person,figure,shade,limbs} of walkers){
+  function walkStreets(state,time,quality) {
+    const limit=(quality==='low'?63:91)*(.72+.28*budget);
+    for(const actor of walkers){
+      const {person,figure,shade,limbs}=actor;
       const pose=streets.pose(person,time);
-      const visible=Math.hypot(state.x-pose.x,state.z-pose.z)<limit;
+      const d=Math.hypot(state.x-pose.x,state.z-pose.z);
+      const dx=pose.x-camera.position.x,dz=pose.z-camera.position.z;
+      const visible=d<limit&&dx*viewX+dz*viewZ>-2&&
+        Math.abs(dx*viewZ-dz*viewX)<10+Math.max(0,dx*viewX+dz*viewZ)*camera.aspect*.68;
       figure.visible=shade.visible=visible;
       if(!visible)continue;
-      const model=models.human(person,pose,time);
       figure.position.set(pose.x,.146,pose.z);
+      shade.position.set(pose.x,.153,pose.z);
+      const distant=d>27*budget+5;
+      const tick=distant?Math.floor(time*24)/24:time;
+      if(tick===actor.lastTime&&distant===actor.distant)continue;
+      const model=models.human(person,pose,tick);
       figure.rotation.y=-model.heading;
       figure.scale.setScalar(model.scale);
-      shade.position.set(pose.x,.153,pose.z);
+      const shapes=distant?models.distantPrimitive:models.primitive;
       for(const [index,part] of model.parts.entries()){
         if(!limbs[index]){
-          const segment=new T.Mesh(geometry(models.primitive[part.mesh]),bodyMaterial(part.color));
-          segment.castShadow=true;
+          const segment=new T.Mesh(geometry(shapes[part.mesh]),bodyMaterial(part.color));
           figure.add(segment);limbs.push(segment);
         }
         const segment=limbs[index];
+        if(distant!==actor.distant)segment.geometry=geometry(shapes[part.mesh]);
+        segment.castShadow=!distant;
         if(part.a){
           bone.set(part.b[0]-part.a[0],part.b[1]-part.a[1],part.b[2]-part.a[2]);
           const length=bone.length();
@@ -470,6 +482,8 @@ window.makeCity = function makeCity(container) {
           segment.scale.set(...part.scale);
         }
       }
+      actor.lastTime=tick;
+      actor.distant=distant;
     }
     for(const dot of signalMeshes){
       const stop=time%17>11;
@@ -488,12 +502,27 @@ window.makeCity = function makeCity(container) {
     headlight:new T.MeshBasicMaterial({color:0xd9f4f5,side:T.DoubleSide,toneMapped:false}),
     tail:new T.MeshBasicMaterial({color:0xbc2532,side:T.DoubleSide,toneMapped:false}),
   };
+  function mergePanels(parts){
+    const banks=new Map();
+    for(const [kind,part] of parts){
+      if(!banks.has(kind))banks.set(kind,{vertices:[],faces:[]});
+      const bank=banks.get(kind), offset=bank.vertices.length;
+      bank.vertices.push(...part.vertices);
+      for(const face of part.faces)bank.faces.push(face.map(index=>index+offset));
+    }
+    return banks;
+  }
+  const bodyPanels=mergePanels(models.parts);
+  const playerWheels=mergePanels(models.wheel);
+  const trafficWheels=mergePanels(models.trafficWheel);
   function car(color,player=false){
     const root=new T.Group(),body=new T.Group(),pivot=new T.Group();
     pivot.position.y=-.44;body.position.y=.44;body.add(pivot);root.add(body);
-    const paint=new T.MeshPhysicalMaterial({color,metalness:.59,roughness:.27,clearcoat:.91,clearcoatRoughness:.13,side:T.DoubleSide});
+    const paint=player
+      ? new T.MeshPhysicalMaterial({color,metalness:.57,roughness:.255,clearcoat:.92,clearcoatRoughness:.15,side:T.DoubleSide})
+      : new T.MeshStandardMaterial({color,metalness:.32,roughness:.39,side:T.DoubleSide});
     const tail=player?vehicleMaterials.tail.clone():vehicleMaterials.tail;
-    for(const [kind,shape] of models.parts){
+    for(const [kind,shape] of bodyPanels){
       const mesh=new T.Mesh(geometry(shape),kind==='paint'?paint:kind==='tail'?tail:vehicleMaterials[kind]);
       mesh.castShadow=kind==='paint';
       pivot.add(mesh);
@@ -502,9 +531,7 @@ window.makeCity = function makeCity(container) {
     for(const side of [-1,1])for(const axle of [-1.49,1.49]){
       const steering=new T.Group(), spin=new T.Group();
       steering.position.set(side*.93,models.radius,axle);
-      for(const [kind,shape] of models.wheel){
-        if(!player&&kind==='hub')continue;
-        if(!player&&kind==='alloy')continue;
+      for(const [kind,shape] of (player?playerWheels:trafficWheels)){
         const mesh=new T.Mesh(geometry(shape),vehicleMaterials[kind]);
         mesh.castShadow=kind==='rubber';spin.add(mesh);
       }
@@ -571,15 +598,23 @@ window.makeCity = function makeCity(container) {
   halo(beacon,0,4.5,0,11,11,0x77ffee,.78);
   scene.add(beacon);
   const focus=new T.Vector3(),nextCamera=new T.Vector3(),nextFocus=new T.Vector3();
-  let graphics='balanced';
-  function setQuality(quality) {
-    graphics=quality;
-    const profile={low:.78,balanced:1.04,high:1.6};
-    renderer.setPixelRatio(Math.min(profile[quality],quality==='low'?1:Math.max(1,devicePixelRatio)));
-    scene.environment=quality==='high'?environment:null;
-    if(renderer.shadowMap)renderer.shadowMap.enabled=quality==='high';
-    road.bumpScale=quality==='low'?0:.085;
+  let graphics='balanced',budget=1,viewX=0,viewZ=-1,lastShadow=-Infinity;
+  function setBudget(value){
+    budget=value;
+    const profile={low:.82,balanced:1.05,high:1.5};
+    const pixelLimit=Math.sqrt(2_250_000/Math.max(1,container.clientWidth*container.clientHeight));
+    renderer.setPixelRatio(Math.max(.58,Math.min(profile[graphics]*budget,pixelLimit,Math.max(1,devicePixelRatio))));
+    scene.environment=graphics==='high'&&budget>.7?environment:null;
+    if(renderer.shadowMap){
+      renderer.shadowMap.enabled=graphics==='high'&&budget>.8;
+      renderer.shadowMap.needsUpdate=renderer.shadowMap.enabled;
+    }
+    road.bumpScale=graphics==='low'||budget<.7?0:.053;
     resize();
+  }
+  function setQuality(quality){
+    graphics=quality;
+    setBudget(1);
   }
   function resize() {
     const w=container.clientWidth,h=Math.max(1,container.clientHeight);
@@ -598,11 +633,12 @@ window.makeCity = function makeCity(container) {
   function draw(state,dt,time,target,immediate=false) {
     player.position.set(state.x,.022,state.z);player.rotation.y=-state.heading;
     driveRig(player,state,state.wheelAngle||0);
-    for(const item of traffic)driveRig(item.vehicle,item,item.along*item.direction/models.radius);
-    if(graphics==='high'){
+    if(renderer.shadowMap?.enabled&&(immediate||time-lastShadow>.085)){
       const x=Math.round(state.x/3)*3,z=Math.round(state.z/3)*3;
       sunrise.target.position.set(x,0,z);
       sunrise.position.set(x+71,80,z-91);
+      renderer.shadowMap.needsUpdate=true;
+      lastShadow=time;
     }
     beacon.visible=!!target;
     if(target){beacon.position.set(target.x,.025,target.z);diamond.rotation.y=time*1.55;diamond.position.y=4+.6*Math.sin(time*3);ring.scale.setScalar(1+.13*Math.sin(time*2.5));}
@@ -618,9 +654,19 @@ window.makeCity = function makeCity(container) {
     camera.position.lerp(next,ease);
     focus.lerp(look,ease);
     camera.lookAt(focus);
+    const dx=focus.x-camera.position.x,dz=focus.z-camera.position.z;
+    const length=Math.hypot(dx,dz)||1;
+    viewX=dx/length;viewZ=dz/length;
+    const trafficDistance=(graphics==='low'?112:158)*(.72+.28*budget);
+    for(const item of traffic){
+      const p=item.vehicle.position;
+      const tx=p.x-camera.position.x,tz=p.z-camera.position.z,forward=tx*viewX+tz*viewZ;
+      item.vehicle.visible=forward>-11&&tx*tx+tz*tz<trafficDistance*trafficDistance;
+      if(item.vehicle.visible&&forward<88)driveRig(item.vehicle,item,item.along*item.direction/models.radius);
+    }
     const fov=58+moving*7;
     if(Math.abs(camera.fov-fov)>.025){camera.fov+=(fov-camera.fov)*ease;camera.updateProjectionMatrix();}
-    const lightDistance=graphics==='low'?125:graphics==='balanced'?220:420;
+    const lightDistance=(graphics==='low'?111:graphics==='balanced'?186:330)*budget;
     for(const light of staticHalos) light.visible=light.position.distanceToSquared(camera.position)<lightDistance*lightDistance;
     aviationLamp.material.opacity=.32+.4*Math.pow(Math.max(0,Math.sin(time*2.9)),4);
     walkStreets(state,time,graphics);
@@ -638,5 +684,5 @@ window.makeCity = function makeCity(container) {
   }
   updateTraffic(0);
   resize();
-  return {resize,draw,updateTraffic,blocked,trafficCollision,setQuality,block,cityLimit};
+  return {resize,draw,updateTraffic,blocked,trafficCollision,setQuality,setBudget,block,cityLimit};
 };

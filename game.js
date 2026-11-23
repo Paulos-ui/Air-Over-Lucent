@@ -8,6 +8,40 @@
     'tuner','tuner-title','tuner-copy','dial','frequency','signal','signal-label','lock','tune-down','tune-up','quality'
   ].map(id=>[id,byId(id)]));
   let city, rendererMode;
+  const physicsStep=1/60;
+  const maxFrame=7*physicsStep;
+  const budgetSteps=[.65,.78,.9,1];
+  let lagLevel=budgetSteps.length-1;
+  let samples=0,slowSamples=0,totalFrame=0,totalCpu=0,coolWindows=0,spikes=0;
+  function resetBudget(){
+    lagLevel=budgetSteps.length-1;
+    samples=slowSamples=totalFrame=totalCpu=coolWindows=spikes=0;
+  }
+  function adjustBudget(frameMs,cpuMs){
+    if(frameMs<5)return;
+    spikes=cpuMs>85?spikes+1:0;
+    if(spikes>=2&&lagLevel>0){
+      lagLevel--;coolWindows=spikes=0;
+      samples=slowSamples=totalFrame=totalCpu=0;
+      city.setBudget?.(budgetSteps[lagLevel]);
+      return;
+    }
+    frameMs=Math.min(frameMs,140);
+    samples++;
+    totalFrame+=frameMs;totalCpu+=cpuMs;
+    if(frameMs>29||cpuMs>19)slowSamples++;
+    if(totalFrame<800)return;
+    const meanFrame=totalFrame/samples,meanCpu=totalCpu/samples;
+    const overloaded=meanFrame>38||meanCpu>23||(slowSamples/samples>.42&&meanCpu>13);
+    if(overloaded&&lagLevel>0){
+      lagLevel--;coolWindows=0;city.setBudget?.(budgetSteps[lagLevel]);
+    }else if(!overloaded&&meanFrame<21&&meanCpu<11){
+      if(++coolWindows>=5&&lagLevel<budgetSteps.length-1){
+        lagLevel++;coolWindows=0;city.setBudget?.(budgetSteps[lagLevel]);
+      }
+    }else coolWindows=0;
+    samples=slowSamples=totalFrame=totalCpu=0;
+  }
 
   const missions=[
     {x:4,z:53,hz:89.3,title:'Find the ferry dispatcher',note:'Drive into the cyan beacon at the Night Market.',station:'Night Market dispatch',message:'Dispatch has a head count. Tune in and relay it to the ferry.',receipt:'Dispatch · Twenty-three passengers aboard.'},
@@ -165,6 +199,7 @@
     if(modes.includes(saved))graphics=saved;
   } catch (_) { /* Private browsers may disable storage. */ }
   function setQuality() {
+    resetBudget();
     city.setQuality(graphics);
     const mode=graphics==='low'?'Low':graphics==='high'?'High':'Medium';
     ui.quality.textContent=rendererMode==='canvas'?'Compat '+mode:mode;
@@ -272,26 +307,42 @@
   });
 
   const map=ui.map.getContext('2d'), rain=ui.rain.getContext('2d');
-  let rainW=0,rainH=0,particles=[];
+  let rainW=0,rainH=0,rainClock=0,particles=[];
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
-  function resize() {
+  function resize(){
     city.resize();
-    rainW=ui.rain.width=innerWidth;rainH=ui.rain.height=innerHeight;
-    particles=Array.from({length:Math.min(170,Math.floor(rainW/8))},()=>({
-      x:Math.random()*rainW,y:Math.random()*rainH,s:200+Math.random()*650,l:8+Math.random()*27
+    rainW=Math.max(1,innerWidth);rainH=Math.max(1,innerHeight);
+    const scale=Math.min(1,Math.sqrt(790_000/(rainW*rainH)));
+    ui.rain.width=Math.round(rainW*scale);ui.rain.height=Math.round(rainH*scale);
+    rain.setTransform(scale,0,0,scale,0,0);
+    particles=Array.from({length:Math.min(154,Math.floor(rainW/8))},(_,i)=>({
+      x:Math.random()*rainW,y:Math.random()*rainH,near:i%3===0,
+      speed:210+Math.random()*650,length:8+Math.random()*26,
     }));
   }
-  function drawRain(dt) {
+  function drawRain(dt){
+    if(reduced.matches){rain.clearRect(0,0,rainW,rainH);return;}
+    rainClock+=dt;
+    const constrained=lagLevel<2;
+    if(constrained&&rainClock<1/32)return;
+    const wind=.23+.057*state.steer;
+    const elapsed=rainClock;rainClock=0;
     rain.clearRect(0,0,rainW,rainH);
-    if(reduced.matches)return;
-    rain.strokeStyle=state.view==='drive'?'#b0b7f759':'#b0b7f73c';rain.lineWidth=.68;
-    rain.beginPath();
-    for(const drop of particles){
-      drop.y+=drop.s*dt;drop.x-=drop.s*.25*dt;
-      if(drop.y>rainH+30||drop.x<-30){drop.y=-30;drop.x=Math.random()*(rainW+140);}
-      rain.moveTo(drop.x,drop.y);rain.lineTo(drop.x-drop.l*.25,drop.y+drop.l);
+    for(const near of [false,true]){
+      rain.strokeStyle=near?'#c9e4ea57':'#bcd1e230';
+      rain.lineWidth=near?.94:.53;
+      rain.beginPath();
+      for(const [index,drop] of particles.entries()){
+        if(drop.near!==near||(constrained&&index%4===0))continue;
+        const travel=drop.speed*elapsed;
+        drop.y+=travel;drop.x-=travel*wind;
+        if(drop.y>rainH+34||drop.x<-34){drop.y=-34;drop.x=Math.random()*(rainW+153);}
+        const length=drop.length*(near?1.14:.59);
+        rain.moveTo(drop.x,drop.y);
+        rain.lineTo(drop.x-length*wind,drop.y+length);
+      }
+      rain.stroke();
     }
-    rain.stroke();
   }
   function districtName() {
     if(state.x>60&&state.z<10)return 'RELAY HILL';
@@ -383,24 +434,36 @@
     if(gap(state,goal)<8.7)openTuner(goal);
   }
   let last=performance.now();
-  let mapAge=0;
+  let mapAge=0,physicsDebt=0;
   function frame(now) {
     if(!city)return;
-    const dt=clamp((now-last)/1000,0,.05);
+    const frameMs=Math.max(0,now-last);
+    const dt=clamp(frameMs/1000,0,maxFrame);
     last=now;menuTime+=dt;mapAge+=dt;
-    const playing=state.view==='drive';
     if(state.view==='tune'&&!document.hidden)state.elapsed+=dt;
-    if(playing||state.view==='menu')city.updateTraffic(dt);
-    if(playing)drive(dt);
-    const goal=objective();
+    if(state.view==='drive'){
+      physicsDebt=Math.min(maxFrame,physicsDebt+dt);
+      while(physicsDebt+1e-8>=physicsStep&&state.view==='drive'){
+        city.updateTraffic(physicsStep);
+        drive(physicsStep);
+        physicsDebt-=physicsStep;
+      }
+    }else{
+      physicsDebt=0;
+      if(state.view==='menu')city.updateTraffic(dt);
+    }
+    const playing=state.view==='drive';
+    const drawStart=performance.now();
     try {
-      city.draw(state,dt,menuTime,playing?goal:null);
+      city.draw(state,dt,menuTime,playing?objective():null);
     } catch(error) {
       if(rendererMode==='canvas'){showRendererError(error);return;}
       if(!activateCompatibility(error))return;
     }
-    drawRain(dt);radio.update(state.view,Math.abs(state.speed),signalLevel,active('handbrake'));
-    if(playing&&mapAge>.065){updateHud(goal);mapAge=0;}
+    drawRain(dt);
+    if((playing||state.view==='menu')&&!document.hidden)adjustBudget(frameMs,performance.now()-drawStart);
+    radio.update(state.view,Math.abs(state.speed),signalLevel,active('handbrake'));
+    if(playing&&mapAge>.065){updateHud(objective());mapAge=0;}
     if(noticeUntil&&menuTime>noticeUntil){ui.notice.textContent='';noticeUntil=0;}
     requestAnimationFrame(frame);
   }

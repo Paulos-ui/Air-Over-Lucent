@@ -30,3 +30,7 @@ Lucent Bay’s market, residential blocks and loading docks use individual store
 ## Real-time geometry
 
 The car, wheels, people, work gear, and shadows render in world space. Steering, wheel spin, suspension pitch, brake lights, walking, and work motions respond to the running game. Compatibility mode projects the same mesh and joint data through a CPU renderer, while the WebGL path uses physically based materials and paired headlamps. The storefronts, surfaces, and sky still use bundled image textures.
+
+### Performance
+
+Graphics detail and internal resolution adapt to sustained frame load. The game uses fixed simulation steps for driving and traffic, and renders the current state once per display frame. Low graphics also reduces distant mesh detail and reflection work.

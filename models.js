@@ -101,6 +101,21 @@
     return [Math.cos(t)*r,y,Math.sin(t)*r];
   })));
   const primitive={round:rounded,limb,box:box(0,0,0,2,2,2)};
+  function ringsY(levels,sides){
+    return loft(levels.map(([y,r])=>Array.from({length:sides},(_,i)=>{
+      const theta=-TAU*i/sides;
+      return [Math.cos(theta)*r,y,Math.sin(theta)*r];
+    })));
+  }
+  const distantPrimitive={
+    round:ringsY([[-1,.19],[-.55,.82],[0,1],[.61,.8],[1,.19]],6),
+    limb:ringsY([[-.5,.78],[.5,.79]],6),
+    box:primitive.box,
+  };
+  const trafficWheel=[
+    ['rubber',axle([[-.175,.36],[-.12,radius],[.12,radius],[.175,.36]],10)],
+    ['hub',axle([[-.185,.23],[.185,.23]],10)],
+  ];
   const clothing={
     walk:[0x333d52,0x292d33,0xb9977f,0x383134],
     porter:[0xdc772d,0x3a454f,0xa87962,0x302d31],
@@ -175,5 +190,5 @@
     const speed=Math.min(1,Math.abs(state.speed||0)/25);
     return {steer:steer*(.43-.17*speed),roll:steer*speed*.10,pitch:state.suspension||0};
   }
-  window.lucentMotion={parts,wheel,radius,primitive,human,rotateX,turn,suspended,dynamics};
+  window.lucentMotion={parts,wheel,radius,primitive,distantPrimitive,trafficWheel,human,rotateX,turn,suspended,dynamics};
 })();

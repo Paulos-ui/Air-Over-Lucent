@@ -54,19 +54,28 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   const skyline = Array.from({ length: 52 }, () => [6 + random() * 26, 11 + random() ** 1.65 * 88, random()]);
   const camera = { x: 0, y: 0, z: 0, sin: 0, cos: 1, pitchSin: 0, pitchCos: 1 };
   let width=1,height=1,focal=1,horizon=0,ratio=1,viewDistance=315,cameraYaw=0;
+  let graphics='balanced',budget=1,detail=1;
 
   function resize() {
     width = Math.max(1, container.clientWidth);
     height = Math.max(1, container.clientHeight);
-    canvas.width = Math.max(1, Math.round(width * ratio));
-    canvas.height = Math.max(1, Math.round(height * ratio));
+    const qualityScale=graphics==='low'?.69:graphics==='high'?1.08:.91;
+    ratio=Math.max(.43,Math.min(qualityScale*budget,Math.sqrt(1_080_000/(width*height))));
+    const pixelsWide=Math.max(1,Math.round(width*ratio)),pixelsHigh=Math.max(1,Math.round(height*ratio));
+    if(canvas.width!==pixelsWide)canvas.width=pixelsWide;
+    if(canvas.height!==pixelsHigh)canvas.height=pixelsHigh;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     focal = height / 1.17;
   }
-  function setQuality(quality) {
-    ratio = quality === 'low' ? .78 : quality === 'high' ? 1.18 : 1;
-    viewDistance = quality === 'low' ? 250 : quality === 'high' ? 375 : 310;
+  function setBudget(value) {
+    budget=value;
+    detail=budget*(graphics==='low'?.86:1);
+    viewDistance=(graphics==='high'?365:graphics==='low'?235:310)*(.22+.78*budget);
     resize();
+  }
+  function setQuality(quality) {
+    graphics=quality;
+    setBudget(1);
   }
   function local([x, y, z]) {
     const dx = x - camera.x, dy = y - camera.y, dz = z - camera.z;
@@ -80,6 +89,8 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     if(!image)return;
     const points=vertices.map(local);
     if(points.every(v=>v[2]<=near))return;
+    const depths=points.map(v=>v[2]);
+    if(Math.min(...depths)<2.6&&Math.max(...depths)>9.5)return;
     const iw=image.naturalWidth||image.width,ih=image.naturalHeight||image.height;
     const uv=[[0,0],[iw,0],[iw,ih],[0,ih]];
     const clipped=[];
@@ -133,8 +144,27 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     if (sx < -100 || sx > width + 100 || sy < -200 || sy > height + 160) return null;
     return [sx, sy, p[2]];
   }
-  function polygon(vertices, color, seam = 0) {
-    const coordinates = vertices.map(local);
+  function polygon(vertices,color,seam=0) {
+    cameraPolygon(vertices.map(local),color,seam);
+  }
+  function cameraPolygon(coordinates,color,seam=0) {
+    ctx.beginPath();
+    if(!tracePolygon(coordinates))return;
+    ctx.fillStyle=color;
+    ctx.fill();
+    if(seam){
+      ctx.strokeStyle=color;
+      ctx.lineWidth=seam;
+      ctx.lineJoin='round';
+      ctx.stroke();
+    }
+  }
+  function tracePolygon(coordinates){
+    let needsClip=false;
+    for(const vertex of coordinates){
+      if(vertex[2]<near){needsClip=true;break;}
+    }
+    if(!needsClip)return traceScreen(coordinates);
     const clipped = [];
     let last = coordinates[coordinates.length - 1];
     for (const p of coordinates) {
@@ -145,21 +175,22 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       if (p[2] >= near) clipped.push(p);
       last = p;
     }
-    if (clipped.length < 3) return;
-    const points = clipped.map(screen);
-    if (points.every(p => p[0] < 0) || points.every(p => p[0] > width) || points.every(p => p[1] < 0) || points.every(p => p[1] > height)) return;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(...points[0]);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(...points[i]);
-    ctx.closePath();
-    ctx.fill();
-    if(seam){
-      ctx.strokeStyle=color;
-      ctx.lineWidth=seam;
-      ctx.lineJoin='round';
-      ctx.stroke();
+    return clipped.length>=3&&traceScreen(clipped);
+  }
+  function traceScreen(vertices){
+    const points=[];
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for(const v of vertices){
+      const x=width*.5+v[0]*focal/v[2],y=height*.5-v[1]*focal/v[2];
+      points.push(x,y);
+      minX=Math.min(minX,x);maxX=Math.max(maxX,x);
+      minY=Math.min(minY,y);maxY=Math.max(maxY,y);
     }
+    if(maxX<0||minX>width||maxY<0||minY>height)return false;
+    ctx.moveTo(points[0],points[1]);
+    for(let i=2;i<points.length;i+=2)ctx.lineTo(points[i],points[i+1]);
+    ctx.closePath();
+    return true;
   }
   function ground(x1, z1, x2, z2, color, y = 0) {
     polygon([[x1,y,z1],[x2,y,z1],[x2,y,z2],[x1,y,z2]], color);
@@ -210,6 +241,11 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     }
   }
   function roadway(state) {
+    const markings=new Map();
+    function mark(x1,z1,x2,z2,color,y=.029){
+      if(!markings.has(color))markings.set(color,[]);
+      markings.get(color).push([[x1,y,z1],[x2,y,z1],[x2,y,z2],[x1,y,z2]]);
+    }
     const ix = Math.round(state.x / block), iz = Math.round(state.z / block);
     const firstX = Math.max(-4, ix - 4), lastX = Math.min(4, ix + 4);
     const firstZ = Math.max(-4, iz - 4), lastZ = Math.min(4, iz + 4);
@@ -223,6 +259,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       const z = row * block;
       ground(firstX*block-halfRoad, z-halfRoad, lastX*block+halfRoad, z+halfRoad, '#29343b');
     }
+    groundTexture(asphalt,-351,-351,351,351,.18);
     for (let col = firstX; col <= lastX; col++) {
       for (let row = firstZ; row <= lastZ; row++) {
         const x = col * block, z = row * block;
@@ -233,33 +270,41 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
         if (col < 4 && row < 4) {
           ground(x + halfRoad, z + halfRoad, x + block - halfRoad, z + block - halfRoad, '#68666a', .08);
           ground(x + halfRoad + .9, z + halfRoad + .9, x + block - halfRoad - .9, z + block - halfRoad - .9, '#454951', .13);
-          if (depth < 137)groundTexture(pavement,x+13.3,z+13.3,x+70.7,z+70.7,.19,.14);
+          if (depth < 76*detail+10)groundTexture(pavement,x+13.3,z+13.3,x+70.7,z+70.7,.19,.14);
         }
-        if (depth < 155 && asphalt) {
-          const opacity=.23-Math.max(0,depth)/1100;
-          groundTexture(asphalt,x-13,z+13,x+13,z+71,opacity);
-          groundTexture(asphalt,x+13,z-13,x+71,z+13,opacity);
-          groundTexture(asphalt,x-13,z-13,x+13,z+13,opacity);
-        }
-        if ((row+col)%2===0&&depth<182) {
+        if ((row+col)%2===0&&depth<98*detail+12) {
           for(let offset=-8.25;offset<=8.25;offset+=1.65){
-            ground(x+offset,z+8.7,x+offset+.88,z+11.05,'#b6b9b199',.029);
-            ground(x+offset,z-11.05,x+offset+.88,z-8.7,'#b6b9b199',.029);
+            mark(x+offset,z+8.7,x+offset+.88,z+11.05,'#b6b9b199');
+            mark(x+offset,z-11.05,x+offset+.88,z-8.7,'#b6b9b199');
           }
-          ground(x-10.8,z+12.4,x+10.8,z+12.66,'#b9b6ac87',.029);
+          mark(x-10.8,z+12.4,x+10.8,z+12.66,'#b9b6ac87');
         }
         for (const d of [-11.2, 11.2]) {
-          ground(x+d-.1, z+13, x+d+.1, z+71, '#737676');
-          ground(x+13, z+d-.1, x+71, z+d+.1, '#737676');
+          mark(x+d-.1,z+13,x+d+.1,z+71,'#737676');
+          mark(x+13,z+d-.1,x+71,z+d+.1,'#737676');
         }
-        for (let d = 17; d < 68; d += 8) {
-          ground(x-.14, z+d, x+.14, z+d+3.4, '#b39873');
-          ground(x+d, z-.14, x+d+3.4, z+.14, '#b39873');
+        for (let d=17;d<68;d+=depth<96*detail?8:16) {
+          mark(x-.14,z+d,x+.14,z+d+3.4,'#b39873');
+          mark(x+d,z-.14,x+d+3.4,z+.14,'#b39873');
         }
-        ground(x+4.7,z+18,x+7.7,z+33,'#7188870c');
-        ground(x+6,z+23,x+7.2,z+47,'#bb9b7809');
-        ground(x+11,z+23,x+12,z+48,'#f1b67c12');
+        if(depth<66*detail){
+          const reflection=point(x+10.95,.04,z+27);
+          if(reflection){
+            ctx.save();
+            ctx.translate(reflection[0],reflection[1]);
+            ctx.scale(.41,1.9);
+            ctx.globalAlpha=.34;
+            glow(0,0,focal/reflection[2]*.9,'#ebab79');
+            ctx.restore();
+          }
+        }
       }
+    }
+    for(const [color,parts] of markings){
+      ctx.beginPath();
+      for(const vertices of parts)tracePolygon(vertices.map(local));
+      ctx.fillStyle=color;
+      ctx.fill();
     }
   }
   const masonryTiles=new Map();
@@ -279,17 +324,24 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   }
   function towerFace(a, b, tall, color, lit, distance, tint, design) {
     polygon([[...a],[...b],[b[0],tall,b[2]],[a[0],tall,a[2]]], color);
-    if(distance>177)return;
-    const wall=wallImage(design.roof==='office'?'glass':design.roof==='terrace'?'brick':design.roof==='industrial'?'steel':'concrete');
+    const limit=127*detail+20;
+    if(distance>limit)return;
+    const lowA=local(a),lowB=local(b);
+    if(lowA[2]<near&&lowB[2]<near)return;
+    if(lowA[2]>near&&lowB[2]>near){
+      const aX=screen(lowA)[0],bX=screen(lowB)[0];
+      if(Math.max(aX,bX)<0||Math.min(aX,bX)>width)return;
+    }
+    const wall=distance<79*detail+15?wallImage(design.roof==='office'?'glass':design.roof==='terrace'?'brick':design.roof==='industrial'?'steel':'concrete'):null;
     const xAt=t=>a[0]+(b[0]-a[0])*t;
     const zAt=t=>a[2]+(b[2]-a[2])*t;
     if(wall){
-      const tiers=Math.ceil(tall/(tall>44?17:10));
+      const tiers=distance>49*detail?1:Math.min(3,Math.ceil(tall/(tall>44?17:10)));
       for(let i=0;i<tiers;i++){
         const top=tall*(i+1)/tiers, bottom=tall*i/tiers;
         texturedQuad([[a[0],top,a[2]],[b[0],top,b[2]],[b[0],bottom,b[2]],[a[0],bottom,a[2]]],wall,tall>44?.72:.54);
       }
-      if(distance<132){
+      if(distance<89*detail+18){
         const groundFront=images?.get(design.frontage);
         const sections=design.roof==='industrial'?1:2;
         for(let slot=0;slot<sections;slot++){
@@ -301,14 +353,15 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
       }
     }
     const across = 4;
-    const floors = Math.min(16, Math.floor(tall / 3.65));
-    for (let floor = 1; floor < floors; floor++) {
+    const floors=Math.min(16,Math.floor(tall/3.65));
+    const stride=distance>57*detail+13?2:1;
+    for(let floor=1;floor<floors;floor+=stride){
       const y = 2.15 + floor * 3.65;
       for (let col = 0; col < across; col++) {
         const center = (col + .5) / across;
         const randomLight = Math.sin((floor * 33 + col * 57 + lit * 103) * 2.13);
         if(design.roof==='industrial'&&(floor>2||col%2===0))continue;
-        if(design.roof==='office'&&randomLight<.5)continue;
+        if(design.roof==='office'&&randomLight<.72)continue;
         const left = center - .073, right = center + .073;
         const x = t => a[0] + (b[0] - a[0]) * t;
         const z = t => a[2] + (b[2] - a[2]) * t;
@@ -320,11 +373,11 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
   function building(b, distance) {
     const a = [b.x-b.w,.13,b.z-b.d], p = [b.x+b.w,.13,b.z-b.d];
     const q = [b.x+b.w,.13,b.z+b.d], r = [b.x-b.w,.13,b.z+b.d];
-    const fade = Math.min(13, distance / 20);
+    const fade=Math.min(19,Math.max(0,distance-22)*.072);
     const warm=b.design.roof==='terrace';
     const hue=warm?17:b.hue;
     const dark='hsl('+hue+' 19% '+(18+fade)+'%)';
-    const bright='hsl('+hue+' 18% '+(26+fade)+'%)';
+    const bright='hsl('+(hue+(warm?9:0))+' 17% '+(25+fade)+'%)';
     if(camera.z<=b.z)towerFace(p,a,b.h,bright,b.lit,distance,b.color,b.design);
     else towerFace(r,q,b.h,bright,b.lit,distance,b.color,b.design);
     if(camera.x<=b.x)towerFace(a,r,b.h,dark,b.lit+.21,distance,b.color,b.design);
@@ -337,7 +390,7 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     }else{
       solid(b.x,b.z,b.w*.73,b.d*.7,b.h,1.5,['#596369','#39454d','#303a3d']);
     }
-    if (b.h > 62) {
+    if (b.h > 62&&distance<135*detail) {
       const antenna = point(b.x,b.h + 3,b.z);
       if (antenna) glow(antenna[0],antenna[1],focal / antenna[2] * .62,'#fc8065');
     }
@@ -357,33 +410,39 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const diffuse=Math.max(0,n[0]*.42+n[1]*.67-n[2]*.61);
     const facing=Math.max(0,n[0]*view[0]+n[1]*view[1]+n[2]*view[2]);
     const edge=gloss*Math.pow(1-facing,2.3);
-    const sky=gloss*(.14+Math.max(0,n[1])*.62)+edge;
+    const sky=gloss*(.11+Math.max(0,n[1])*.42)+edge*.93;
+    const gleam=gloss?Math.pow(Math.max(0,n[0]*(.43+view[0])*.54+n[1]*(.66+view[1])*.54+
+      n[2]*(-.62+view[2])*.54),8)*gloss:0;
     const light=.62+diffuse*.53+Math.max(0,n[1])*.16;
-    const r=Math.min(255,Math.round((color>>16)*light+sky*84));
-    const g=Math.min(255,Math.round((color>>8&255)*light+sky*110));
-    const b=Math.min(255,Math.round((color&255)*light+sky*125));
+    const r=Math.min(255,Math.round((color>>16)*light+sky*80+gleam*98));
+    const g=Math.min(255,Math.round((color>>8&255)*light+sky*97+gleam*73));
+    const b=Math.min(255,Math.round((color&255)*light+sky*115+gleam*51));
     return 'rgb('+r+','+g+','+b+')';
   }
   function mesh(queue,shape,transform,color,gloss=0,emissive=false){
     const vertices=shape.vertices.map(transform);
+    const eye=vertices.map(local);
+    const twoSided=shape.faces.length===1;
     for(const face of shape.faces){
       const a=vertices[face[0]],b=vertices[face[1]],c=vertices[face[2]];
-      let n=normal(cross(subtract(b,a),subtract(c,a)));
-      const center=[(a[0]+c[0])*.5,(a[1]+c[1])*.5,(a[2]+c[2])*.5];
-      const view=normal(subtract([camera.x,camera.y,camera.z],center));
-      const facing=n[0]*view[0]+n[1]*view[1]+n[2]*view[2];
-      if(facing<0){
-        if(shape.faces.length>1)continue;
-        n=n.map(value=>-value);
-      }
-      const depth=local(center)[2];
+      const depth=(eye[face[0]][2]+eye[face[2]][2])*.5;
       if(depth<.55)continue;
-      queue.push({depth,vertices:face.map(index=>vertices[index]),fill:shade(color,n,view,gloss,emissive)});
+      const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+      const wx=c[0]-a[0],wy=c[1]-a[1],wz=c[2]-a[2];
+      let nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx;
+      const vx=camera.x-(a[0]+c[0])*.5,vy=camera.y-(a[1]+c[1])*.5,vz=camera.z-(a[2]+c[2])*.5;
+      if(nx*vx+ny*vy+nz*vz<0){
+        if(!twoSided)continue;
+        nx=-nx;ny=-ny;nz=-nz;
+      }
+      const nLength=Math.hypot(nx,ny,nz)||1,vLength=Math.hypot(vx,vy,vz)||1;
+      const fill=shade(color,[nx/nLength,ny/nLength,nz/nLength],[vx/vLength,vy/vLength,vz/vLength],gloss,emissive);
+      queue.push({depth,vertices:face.map(index=>eye[index]),fill,seam:gloss>.18&&depth<24?.46:0});
     }
   }
   function finishMesh(queue){
     queue.sort((a,b)=>b.depth-a.depth);
-    for(const face of queue)polygon(face.vertices,face.fill,.48);
+    for(const face of queue)cameraPolygon(face.vertices,face.fill,face.seam);
   }
   function pavementShadow(x,z,heading,w,d,strength){
     const outline=(radius)=>Array.from({length:14},(_,i)=>{
@@ -400,9 +459,14 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const player=!!driver, brake=driver?.brake;
     const motion=driver?models.dynamics(driver):{steer:0,roll:0,pitch:0};
     const spin=driver?-(driver.wheelAngle||0):-time*7.5;
-    const locate=p=>{
-      const q=models.turn(p,heading);
-      return [x+q[0],q[1]+.025,z+q[2]];
+    const s=Math.sin(heading),c=Math.cos(heading);
+    const ps=Math.sin(motion.pitch),pc=Math.cos(motion.pitch);
+    const rs=Math.sin(motion.roll),rc=Math.cos(motion.roll);
+    const ss=Math.sin(spin),sc=Math.cos(spin);
+    const locate=([a,b,d])=>[x+a*c-d*s,b+.025,z+a*s+d*c];
+    const chassis=([a,b,d])=>{
+      const y=(b-.44)*pc-d*ps, depth=(b-.44)*ps+d*pc;
+      return locate([a*rc-y*rs,.44+a*rs+y*rc,depth]);
     };
     pavementShadow(x,z,heading,1.02,2.13,player?.47:.31);
     if(player){
@@ -426,22 +490,24 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     for(const [kind,shape] of models.parts){
       const color=kind==='paint'?paint:kind==='tail'&&brake?0xff4955:colors[kind];
       const gloss=kind==='paint'?.27:kind==='glass'?.31:kind==='chrome'?.2:0;
-      mesh(faces,shape,p=>locate(models.suspended(p,motion.pitch,motion.roll)),color,gloss,kind==='tail'||kind==='headlight');
+      mesh(faces,shape,chassis,color,gloss,kind==='tail'||kind==='headlight');
     }
-    if(player||distance<56){
+    if(player||distance<48*detail){
+      const wheels=player&&detail>.78?models.wheel:models.trafficWheel;
       for(const side of [-1,1])for(const axle of [-1.49,1.49]){
-        for(const [kind,shape] of models.wheel){
-          if(!player&&distance>26&&kind!=='rubber'&&kind!=='alloy')continue;
-          const steer=axle<0?motion.steer:0;
-          mesh(faces,shape,p=>{
-            const q=models.turn(models.rotateX(p,spin),steer);
-            return locate([q[0]+side*.93,q[1]+models.radius,q[2]+axle]);
-          },colors[kind],kind==='alloy'?.25:0);
+        const steer=axle<0?motion.steer:0;
+        const aSin=Math.sin(steer),aCos=Math.cos(steer);
+        const steered=([a,b,d])=>{
+          const y=b*sc-d*ss,depth=b*ss+d*sc;
+          return locate([a*aCos-depth*aSin+side*.93,y+models.radius,a*aSin+depth*aCos+axle]);
+        };
+        for(const [kind,shape] of wheels){
+          mesh(faces,shape,steered,colors[kind],kind==='alloy'?.25:0);
         }
       }
     }
     finishMesh(faces);
-    if(player&&Math.abs(driver.speed)>11){
+    if(player&&detail>.77&&Math.abs(driver.speed)>11){
       ctx.strokeStyle='#a6c8ca3a';ctx.lineWidth=1;
       ctx.beginPath();
       for(let i=0;i<24;i++){
@@ -524,25 +590,24 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     const foot=point(pose.x,.15,pose.z);
     if(!foot)return;
     const model=models.human(person,pose,time);
-    const locate=p=>{
-      const q=models.turn(p.map(value=>value*model.scale),model.heading);
-      return [pose.x+q[0],.145+q[1],pose.z+q[2]];
-    };
+    const s=Math.sin(model.heading)*model.scale,c=Math.cos(model.heading)*model.scale;
+    const locate=([x,y,z])=>[pose.x+c*x-s*z,.145+y*model.scale,pose.z+s*x+c*z];
     pavementShadow(pose.x,pose.z,model.heading,.26,.23,.30);
     const faces=[];
+    const shapes=foot[2]>23*detail?models.distantPrimitive:models.primitive;
     for(const part of model.parts){
-      if(foot[2]>51&&part.mesh==='round'&&part.scale[1]<.05)continue;
+      if(foot[2]>32*detail&&part.mesh==='round'&&part.scale[1]<.05)continue;
       if(part.a){
         const d=subtract(part.b,part.a),axis=normal(d);
         const right=normal(cross(axis,Math.abs(axis[1])>.81?[0,0,1]:[0,1,0]));
         const forward=cross(right,axis);
         const length=Math.hypot(...d);
         const center=part.a.map((value,i)=>value+d[i]*.5);
-        mesh(faces,models.primitive.limb,p=>locate(center.map((value,i)=>
+        mesh(faces,shapes.limb,p=>locate(center.map((value,i)=>
           value+(p[0]*right[i]+p[2]*forward[i])*part.width+p[1]*axis[i]*length
         )),part.color);
       }else{
-        mesh(faces,models.primitive[part.mesh],p=>locate(p.map((value,i)=>value*part.scale[i]+part.center[i])),part.color);
+        mesh(faces,shapes[part.mesh],p=>locate(p.map((value,i)=>value*part.scale[i]+part.center[i])),part.color);
       }
     }
     finishMesh(faces);
@@ -647,11 +712,11 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     for (const light of lights) visible(light.x,light.z,7,'lamp',light);
     for (const mark of signs) visible(mark.x,mark.z,10,'sign',mark);
     for(const item of streets.props){
-      if(Math.hypot(item.x-state.x,item.z-state.z)<125)visible(item.x,item.z,3,'prop',item);
+      if(Math.hypot(item.x-state.x,item.z-state.z)<104*detail+16)visible(item.x,item.z,3,'prop',item);
     }
     for(const person of streets.pedestrians){
       const pose=streets.pose(person,time);
-      if(Math.hypot(pose.x-state.x,pose.z-state.z)<104)visible(pose.x,pose.z,1,'person',{person,pose});
+      if(Math.hypot(pose.x-state.x,pose.z-state.z)<75*detail+11)visible(pose.x,pose.z,1,'person',{person,pose});
     }
     for (const item of cars) {
       const [x,z] = carLocation(item);
@@ -681,5 +746,5 @@ window.makeCompatibilityCity = function makeCompatibilityCity(container) {
     });
   }
   resize();
-  return { resize, setQuality, draw, updateTraffic, blocked, trafficCollision, block, cityLimit };
+  return {resize,setQuality,setBudget,draw,updateTraffic,blocked,trafficCollision,block,cityLimit};
 };
